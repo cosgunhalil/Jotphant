@@ -20,7 +20,7 @@ See [`SCOPE.md`](SCOPE.md) for the product scope and
 
 ## M0 — Walking skeleton (thin end-to-end: create → start → timer → complete → bank)
 
-- [ ] 0.1 Boot egui window + module scaffold (`domain`/`storage`/`app`/`ui`) — *adds `eframe`*
+- [x] 0.1 Boot egui window + module scaffold (`domain`/`storage`/`app`/`ui`) — *adds `eframe`*
 - [ ] 0.2 Domain core (test-first): entities + enums, transition validation, reward math
 - [ ] 0.3 SQLite storage (test-first, in-memory): connection, migrations
       (`tasks`/`pomodoro_sessions`/`bank_transactions`), repository traits + rusqlite impl —

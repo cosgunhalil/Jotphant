@@ -3,7 +3,11 @@ name = "Jotphant"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "jotphant"
+
 [dependencies]
+eframe = "0.35.0"
 
 [lints.rust]
 warnings = "deny"
