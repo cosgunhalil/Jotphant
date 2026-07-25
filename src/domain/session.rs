@@ -221,8 +221,13 @@ mod tests {
     #[test]
     fn remaining_and_expiry_track_elapsed_time() {
         let start = DateTime::from_timestamp(1000, 0).expect("valid timestamp");
-        let session =
-            PomodoroSession::new(PomodoroSessionId::new(1), TaskId::new(1), TimerPhase::Focus, 60, start);
+        let session = PomodoroSession::new(
+            PomodoroSessionId::new(1),
+            TaskId::new(1),
+            TimerPhase::Focus,
+            60,
+            start,
+        );
 
         assert_eq!(session.remaining_seconds(start), 60);
         assert!(!session.is_expired(start));

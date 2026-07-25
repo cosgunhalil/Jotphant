@@ -159,7 +159,10 @@ mod tests {
 
     #[test]
     fn a_customized_config_round_trips() {
-        let config = AppConfig::new(PomodoroConfig::new(50 * 60, 10 * 60, 20 * 60, 3, false, true), 8);
+        let config = AppConfig::new(
+            PomodoroConfig::new(50 * 60, 10 * 60, 20 * 60, 3, false, true),
+            8,
+        );
         let text = to_toml(&config).expect("serialize");
         let parsed = parse(&text).expect("parse");
         assert_eq!(parsed, config);

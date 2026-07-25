@@ -159,9 +159,9 @@ impl NoteRepository for SqliteStore {
     }
 
     fn backlinks(&self, to_note_id: NoteId) -> Result<Vec<NoteId>, RepositoryError> {
-        let mut stmt = self
-            .connection()
-            .prepare("SELECT from_note_id FROM note_links WHERE to_note_id = ?1 ORDER BY from_note_id")?;
+        let mut stmt = self.connection().prepare(
+            "SELECT from_note_id FROM note_links WHERE to_note_id = ?1 ORDER BY from_note_id",
+        )?;
         let mut rows = stmt.query(params![to_note_id.value()])?;
         let mut ids = Vec::new();
         while let Some(row) = rows.next()? {
@@ -191,10 +191,7 @@ mod tests {
         let created = store
             .create_note("Title", "Some **markdown**", None, ts())
             .expect("create");
-        let fetched = store
-            .get_note(created.id())
-            .expect("get")
-            .expect("exists");
+        let fetched = store.get_note(created.id()).expect("get").expect("exists");
         assert_eq!(fetched, created);
         assert_eq!(fetched.body_markdown(), "Some **markdown**");
         assert!(!fetched.pinned());
@@ -265,7 +262,10 @@ mod tests {
         store
             .set_note_tags(note.id(), &["work".to_owned(), "urgent".to_owned()])
             .expect("set tags");
-        assert_eq!(store.note_tags(note.id()).expect("tags"), ["urgent", "work"]);
+        assert_eq!(
+            store.note_tags(note.id()).expect("tags"),
+            ["urgent", "work"]
+        );
 
         store
             .set_note_tags(note.id(), &["home".to_owned()])
@@ -278,10 +278,16 @@ mod tests {
         let store = store();
         let a = store.create_note("a", "", None, ts()).expect("create a");
         let b = store.create_note("b", "", None, ts()).expect("create b");
-        let target = store.create_note("target", "", None, ts()).expect("create target");
+        let target = store
+            .create_note("target", "", None, ts())
+            .expect("create target");
 
-        store.set_note_links(a.id(), &[target.id()]).expect("link a");
-        store.set_note_links(b.id(), &[target.id()]).expect("link b");
+        store
+            .set_note_links(a.id(), &[target.id()])
+            .expect("link a");
+        store
+            .set_note_links(b.id(), &[target.id()])
+            .expect("link b");
 
         let mut backlinks = store.backlinks(target.id()).expect("backlinks");
         backlinks.sort_by_key(|id| id.value());

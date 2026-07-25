@@ -5,9 +5,10 @@ use chrono::{DateTime, Utc};
 use crate::app::error::Error;
 use crate::domain::bank::{self, BankTransactionType};
 use crate::domain::config::AppConfig;
-use crate::domain::ids::TaskId;
+use crate::domain::ids::{NoteId, TaskId};
+use crate::domain::note::Note;
 use crate::domain::repository::{
-    BankRepository, SessionRepository, TaskRepository, Transactional,
+    BankRepository, NoteRepository, SessionRepository, TaskRepository, Transactional,
 };
 use crate::domain::reward;
 use crate::domain::session::{PomodoroSession, SessionStatus, TimerPhase};
@@ -24,7 +25,7 @@ pub struct TaskService<S> {
 
 impl<S> TaskService<S>
 where
-    S: TaskRepository + SessionRepository + BankRepository + Transactional,
+    S: TaskRepository + SessionRepository + BankRepository + NoteRepository + Transactional,
 {
     /// Creates a service over `store` with the given application configuration.
     pub fn new(store: S, config: AppConfig) -> Self {
@@ -134,7 +135,8 @@ where
         self.store.transaction(|| {
             self.store.update_session(&completed_session)?;
             if auto_start {
-                self.store.create_session(task_id, next_phase, duration, now)?;
+                self.store
+                    .create_session(task_id, next_phase, duration, now)?;
             }
             Ok(())
         })?;
@@ -158,8 +160,7 @@ where
             return Err(Error::TaskNotActive);
         }
 
-        let earned =
-            reward::completed_focus_pomos(&self.store.list_sessions_for_task(task_id)?);
+        let earned = reward::completed_focus_pomos(&self.store.list_sessions_for_task(task_id)?);
         let amount = i32::try_from(earned).map_err(|_| Error::RewardOverflow)?;
         task.apply_transition(TaskStatus::Done, now)?;
 
@@ -284,7 +285,9 @@ where
             .iter()
             .max_by_key(|session| session.id().value())
             .map_or(TimerPhase::Focus, |session| {
-                self.config.pomodoro().next_phase(session.phase(), completed_focus)
+                self.config
+                    .pomodoro()
+                    .next_phase(session.phase(), completed_focus)
             });
         Ok(Some(next))
     }
@@ -323,6 +326,111 @@ where
         {
             self.advance_pomodoro(active.id(), now)?;
         }
+        Ok(())
+    }
+
+    // --- Notes ---
+
+    /// Creates a new standalone note.
+    ///
+    /// # Errors
+    /// Returns a storage error if the insert fails.
+    pub fn create_note(
+        &self,
+        title: &str,
+        body_markdown: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Note, Error> {
+        let note = self.store.create_note(title, body_markdown, None, now)?;
+        Ok(note)
+    }
+
+    /// Lists all notes (pinned first, then most recently updated).
+    ///
+    /// # Errors
+    /// Returns a storage error if the query fails.
+    pub fn list_notes(&self) -> Result<Vec<Note>, Error> {
+        let notes = self.store.list_notes()?;
+        Ok(notes)
+    }
+
+    /// Searches notes by title/body substring.
+    ///
+    /// # Errors
+    /// Returns a storage error if the query fails.
+    pub fn search_notes(&self, query: &str) -> Result<Vec<Note>, Error> {
+        let notes = self.store.search_notes(query)?;
+        Ok(notes)
+    }
+
+    /// Updates a note's title and body, bumping its updated-at time.
+    ///
+    /// # Errors
+    /// Returns [`Error::NoteNotFound`] if the note does not exist, or a storage error.
+    pub fn save_note_content(
+        &self,
+        id: NoteId,
+        title: String,
+        body_markdown: String,
+        now: DateTime<Utc>,
+    ) -> Result<Note, Error> {
+        let mut note = self.store.get_note(id)?.ok_or(Error::NoteNotFound)?;
+        note.set_title(title);
+        note.set_body(body_markdown);
+        note.touch(now);
+        self.store.update_note(&note)?;
+        Ok(note)
+    }
+
+    /// Sets a note's pinned flag.
+    ///
+    /// # Errors
+    /// Returns [`Error::NoteNotFound`] if the note does not exist, or a storage error.
+    pub fn set_note_pinned(
+        &self,
+        id: NoteId,
+        pinned: bool,
+        now: DateTime<Utc>,
+    ) -> Result<(), Error> {
+        let mut note = self.store.get_note(id)?.ok_or(Error::NoteNotFound)?;
+        note.set_pinned(pinned);
+        note.touch(now);
+        self.store.update_note(&note)?;
+        Ok(())
+    }
+
+    /// Sets a note's archived flag.
+    ///
+    /// # Errors
+    /// Returns [`Error::NoteNotFound`] if the note does not exist, or a storage error.
+    pub fn set_note_archived(
+        &self,
+        id: NoteId,
+        archived: bool,
+        now: DateTime<Utc>,
+    ) -> Result<(), Error> {
+        let mut note = self.store.get_note(id)?.ok_or(Error::NoteNotFound)?;
+        note.set_archived(archived);
+        note.touch(now);
+        self.store.update_note(&note)?;
+        Ok(())
+    }
+
+    /// Returns a note's tags.
+    ///
+    /// # Errors
+    /// Returns a storage error if the query fails.
+    pub fn note_tags(&self, id: NoteId) -> Result<Vec<String>, Error> {
+        let tags = self.store.note_tags(id)?;
+        Ok(tags)
+    }
+
+    /// Replaces a note's tags.
+    ///
+    /// # Errors
+    /// Returns a storage error if the update fails.
+    pub fn set_note_tags(&self, id: NoteId, tags: &[String]) -> Result<(), Error> {
+        self.store.set_note_tags(id, tags)?;
         Ok(())
     }
 
@@ -390,7 +498,10 @@ mod tests {
     }
 
     fn service_with(config: AppConfig) -> TaskService<SqliteStore> {
-        TaskService::new(SqliteStore::open_in_memory().expect("in-memory store"), config)
+        TaskService::new(
+            SqliteStore::open_in_memory().expect("in-memory store"),
+            config,
+        )
     }
 
     #[test]
@@ -461,7 +572,9 @@ mod tests {
     #[test]
     fn completed_task_cannot_be_restarted() {
         let service = service();
-        let task = service.create_task("one and done", 1, ts()).expect("create");
+        let task = service
+            .create_task("one and done", 1, ts())
+            .expect("create");
         service.start_task(task.id(), ts()).expect("start");
         service
             .advance_pomodoro(task.id(), ts())
@@ -483,7 +596,9 @@ mod tests {
             .advance_pomodoro(task.id(), ts())
             .expect("complete pomo");
 
-        let earned = service.complete_task(task.id(), ts()).expect("complete task");
+        let earned = service
+            .complete_task(task.id(), ts())
+            .expect("complete task");
         assert_eq!(earned, 1);
         assert_eq!(service.bank_balance().expect("balance"), 1);
 
@@ -505,12 +620,7 @@ mod tests {
         let earned = service.complete_task(task.id(), ts()).expect("complete");
         assert_eq!(earned, 0);
         assert_eq!(service.bank_balance().expect("balance"), 0);
-        assert!(
-            service
-                .running_session(task.id())
-                .expect("query")
-                .is_none()
-        );
+        assert!(service.running_session(task.id()).expect("query").is_none());
     }
 
     #[test]
@@ -521,12 +631,7 @@ mod tests {
 
         let paused = service.pause_task(task.id(), ts()).expect("pause");
         assert_eq!(paused.status(), TaskStatus::Paused);
-        assert!(
-            service
-                .running_session(task.id())
-                .expect("query")
-                .is_none()
-        );
+        assert!(service.running_session(task.id()).expect("query").is_none());
     }
 
     #[test]
@@ -538,18 +643,15 @@ mod tests {
 
         let resumed = service.start_task(task.id(), ts()).expect("resume");
         assert_eq!(resumed.status(), TaskStatus::InProgress);
-        assert!(
-            service
-                .running_session(task.id())
-                .expect("query")
-                .is_some()
-        );
+        assert!(service.running_session(task.id()).expect("query").is_some());
     }
 
     #[test]
     fn earned_pomos_accumulate_across_a_pause() {
         let service = service();
-        let task = service.create_task("two sittings", 2, ts()).expect("create");
+        let task = service
+            .create_task("two sittings", 2, ts())
+            .expect("create");
         service.start_task(task.id(), ts()).expect("start");
         service
             .advance_pomodoro(task.id(), ts())
@@ -578,7 +680,9 @@ mod tests {
     #[test]
     fn cancel_task_marks_cancelled_without_reward() {
         let service = service();
-        let task = service.create_task("abandon ship", 2, ts()).expect("create");
+        let task = service
+            .create_task("abandon ship", 2, ts())
+            .expect("create");
         service.start_task(task.id(), ts()).expect("start");
         service
             .advance_pomodoro(task.id(), ts())
@@ -620,11 +724,52 @@ mod tests {
     #[test]
     fn cannot_cancel_a_todo_task() {
         let service = service();
-        let task = service.create_task("never started", 1, ts()).expect("create");
+        let task = service
+            .create_task("never started", 1, ts())
+            .expect("create");
         let error = service
             .cancel_task(task.id(), ts())
             .expect_err("todo cannot be cancelled");
         assert!(matches!(error, Error::Transition(_)));
+    }
+
+    #[test]
+    fn notes_can_be_created_edited_and_tagged() {
+        let service = service();
+        let note = service
+            .create_note("Idea", "first draft", ts())
+            .expect("create");
+        assert!(!note.pinned());
+
+        let saved = service
+            .save_note_content(
+                note.id(),
+                "Idea v2".to_owned(),
+                "second draft".to_owned(),
+                ts(),
+            )
+            .expect("save");
+        assert_eq!(saved.title(), "Idea v2");
+        assert_eq!(saved.body_markdown(), "second draft");
+
+        service.set_note_pinned(note.id(), true, ts()).expect("pin");
+        service
+            .set_note_tags(note.id(), &["work".to_owned()])
+            .expect("tag");
+        assert_eq!(service.note_tags(note.id()).expect("tags"), ["work"]);
+
+        let listed = service.list_notes().expect("list");
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].pinned());
+    }
+
+    #[test]
+    fn saving_a_missing_note_is_not_found() {
+        let service = service();
+        let error = service
+            .save_note_content(NoteId::new(123), "x".to_owned(), String::new(), ts())
+            .expect_err("missing note");
+        assert!(matches!(error, Error::NoteNotFound));
     }
 
     #[test]
@@ -667,9 +812,13 @@ mod tests {
         let service = service();
         let task = service.create_task("cycle", 4, ts()).expect("create");
         service.start_task(task.id(), ts()).expect("start");
-        service.advance_pomodoro(task.id(), ts()).expect("focus -> break");
+        service
+            .advance_pomodoro(task.id(), ts())
+            .expect("focus -> break");
 
-        service.advance_pomodoro(task.id(), ts()).expect("break -> focus");
+        service
+            .advance_pomodoro(task.id(), ts())
+            .expect("break -> focus");
         let running = service
             .running_session(task.id())
             .expect("query")
@@ -685,17 +834,23 @@ mod tests {
 
         // Complete three focus pomos, each followed by a short break.
         for _ in 0..3 {
-            service.advance_pomodoro(task.id(), ts()).expect("focus -> break");
+            service
+                .advance_pomodoro(task.id(), ts())
+                .expect("focus -> break");
             let running = service
                 .running_session(task.id())
                 .expect("query")
                 .expect("break");
             assert_eq!(running.phase(), TimerPhase::ShortBreak);
-            service.advance_pomodoro(task.id(), ts()).expect("break -> focus");
+            service
+                .advance_pomodoro(task.id(), ts())
+                .expect("break -> focus");
         }
 
         // The fourth focus completes -> long break.
-        service.advance_pomodoro(task.id(), ts()).expect("fourth focus");
+        service
+            .advance_pomodoro(task.id(), ts())
+            .expect("fourth focus");
         let running = service
             .running_session(task.id())
             .expect("query")
@@ -706,7 +861,9 @@ mod tests {
     #[test]
     fn reconcile_completes_a_timer_that_expired_while_closed() {
         let service = service(); // default focus = 25 min
-        let task = service.create_task("left running", 4, ts()).expect("create");
+        let task = service
+            .create_task("left running", 4, ts())
+            .expect("create");
         service.start_task(task.id(), ts()).expect("start");
 
         // Reopen 40 minutes later — the focus should have finished.
@@ -767,7 +924,9 @@ mod tests {
         );
 
         // Starting it manually opens the break.
-        service.start_next_phase(task.id(), ts()).expect("start next");
+        service
+            .start_next_phase(task.id(), ts())
+            .expect("start next");
         let running = service
             .running_session(task.id())
             .expect("query")

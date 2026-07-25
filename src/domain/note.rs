@@ -151,7 +151,13 @@ mod tests {
 
     #[test]
     fn new_note_is_unpinned_unarchived_and_untouched() {
-        let note = Note::new(NoteId::new(1), "t".to_owned(), "body".to_owned(), None, ts());
+        let note = Note::new(
+            NoteId::new(1),
+            "t".to_owned(),
+            "body".to_owned(),
+            None,
+            ts(),
+        );
         assert!(!note.pinned());
         assert!(!note.archived());
         assert_eq!(note.created_at(), ts());

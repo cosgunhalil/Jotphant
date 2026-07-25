@@ -98,22 +98,40 @@ mod tests {
     #[test]
     fn focus_normally_leads_to_a_short_break() {
         let config = PomodoroConfig::default();
-        assert_eq!(config.next_phase(TimerPhase::Focus, 1), TimerPhase::ShortBreak);
-        assert_eq!(config.next_phase(TimerPhase::Focus, 3), TimerPhase::ShortBreak);
+        assert_eq!(
+            config.next_phase(TimerPhase::Focus, 1),
+            TimerPhase::ShortBreak
+        );
+        assert_eq!(
+            config.next_phase(TimerPhase::Focus, 3),
+            TimerPhase::ShortBreak
+        );
     }
 
     #[test]
     fn every_nth_focus_leads_to_a_long_break() {
         let config = PomodoroConfig::default(); // long break after 4
-        assert_eq!(config.next_phase(TimerPhase::Focus, 4), TimerPhase::LongBreak);
-        assert_eq!(config.next_phase(TimerPhase::Focus, 8), TimerPhase::LongBreak);
+        assert_eq!(
+            config.next_phase(TimerPhase::Focus, 4),
+            TimerPhase::LongBreak
+        );
+        assert_eq!(
+            config.next_phase(TimerPhase::Focus, 8),
+            TimerPhase::LongBreak
+        );
     }
 
     #[test]
     fn breaks_lead_back_to_focus() {
         let config = PomodoroConfig::default();
-        assert_eq!(config.next_phase(TimerPhase::ShortBreak, 3), TimerPhase::Focus);
-        assert_eq!(config.next_phase(TimerPhase::LongBreak, 4), TimerPhase::Focus);
+        assert_eq!(
+            config.next_phase(TimerPhase::ShortBreak, 3),
+            TimerPhase::Focus
+        );
+        assert_eq!(
+            config.next_phase(TimerPhase::LongBreak, 4),
+            TimerPhase::Focus
+        );
     }
 
     #[test]
@@ -139,7 +157,13 @@ mod tests {
     fn long_break_after_is_clamped_to_at_least_one() {
         let config = PomodoroConfig::new(1, 1, 1, 0, true, true);
         // With the clamp, every focus is "the nth", so a long break is always due.
-        assert_eq!(config.next_phase(TimerPhase::Focus, 1), TimerPhase::LongBreak);
-        assert_eq!(config.next_phase(TimerPhase::Focus, 2), TimerPhase::LongBreak);
+        assert_eq!(
+            config.next_phase(TimerPhase::Focus, 1),
+            TimerPhase::LongBreak
+        );
+        assert_eq!(
+            config.next_phase(TimerPhase::Focus, 2),
+            TimerPhase::LongBreak
+        );
     }
 }

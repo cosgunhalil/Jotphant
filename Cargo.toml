@@ -9,6 +9,7 @@ name = "jotphant"
 [dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 eframe = "0.35.0"
+egui_commonmark = "0.24.0"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.19"

@@ -9,6 +9,9 @@ pub enum Error {
     /// No task exists with the given id.
     #[error("task not found")]
     TaskNotFound,
+    /// No note exists with the given id.
+    #[error("note not found")]
+    NoteNotFound,
     /// The operation requires an active (in-progress or paused) task.
     #[error("task is not active")]
     TaskNotActive,

@@ -9,16 +9,25 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use eframe::egui;
+use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
 use crate::app::TaskService;
 use crate::domain::config::AppConfig;
-use crate::domain::ids::TaskId;
+use crate::domain::ids::{NoteId, TaskId};
+use crate::domain::note::Note;
 use crate::domain::pomodoro::PomodoroConfig;
 use crate::domain::repository::{
-    BankRepository, SessionRepository, TaskRepository, Transactional,
+    BankRepository, NoteRepository, SessionRepository, TaskRepository, Transactional,
 };
 use crate::domain::session::{PomodoroSession, TimerPhase};
 use crate::domain::task::{Task, TaskStatus};
+
+/// Which top-level screen is showing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum View {
+    Board,
+    Notes,
+}
 
 /// Editable form state for the settings screen (durations in minutes).
 struct SettingsDraft {
@@ -84,6 +93,13 @@ enum Action {
     OpenSettings,
     SaveSettings,
     CloseSettings,
+    SwitchView(View),
+    NewNote,
+    SelectNote(NoteId),
+    SaveNote(NoteId),
+    PinNote(NoteId, bool),
+    ArchiveNote(NoteId, bool),
+    SearchNotes,
 }
 
 /// Persists the configuration; injected by the composition root so the UI need not know
@@ -107,11 +123,20 @@ pub struct JotphantApp<S> {
     selected: Option<TaskId>,
     detail_description: String,
     settings: Option<SettingsDraft>,
+    view: View,
+    notes: Vec<Note>,
+    note_search: String,
+    selected_note: Option<NoteId>,
+    note_title: String,
+    note_body: String,
+    note_tags_input: String,
+    note_preview: bool,
+    md_cache: CommonMarkCache,
 }
 
 impl<S> JotphantApp<S>
 where
-    S: TaskRepository + SessionRepository + BankRepository + Transactional,
+    S: TaskRepository + SessionRepository + BankRepository + NoteRepository + Transactional,
 {
     /// Builds the app over an injected service and config-save function, loading the
     /// initial state.
@@ -132,6 +157,15 @@ where
             selected: None,
             detail_description: String::new(),
             settings: None,
+            view: View::Board,
+            notes: Vec::new(),
+            note_search: String::new(),
+            selected_note: None,
+            note_title: String::new(),
+            note_body: String::new(),
+            note_tags_input: String::new(),
+            note_preview: false,
+            md_cache: CommonMarkCache::default(),
         };
         // Catch up any timer that elapsed while the app was closed, then load state.
         if let Err(error) = app.service.reconcile_active_timer(Utc::now()) {
@@ -189,6 +223,36 @@ where
         };
     }
 
+    /// Reloads the notes list (search results if a query is present, else all).
+    fn refresh_notes(&mut self) {
+        let query = self.note_search.trim();
+        let result = if query.is_empty() {
+            self.service.list_notes()
+        } else {
+            self.service.search_notes(query)
+        };
+        match result {
+            Ok(notes) => self.notes = notes,
+            Err(error) => self.status = Some(error.to_string()),
+        }
+    }
+
+    /// Loads a note's content and tags into the editor buffers.
+    fn select_note(&mut self, id: NoteId) {
+        self.selected_note = Some(id);
+        if let Some(note) = self.notes.iter().find(|note| note.id() == id) {
+            self.note_title = note.title().to_owned();
+            self.note_body = note.body_markdown().to_owned();
+        }
+        self.note_tags_input = match self.service.note_tags(id) {
+            Ok(tags) => tags.join(", "),
+            Err(error) => {
+                self.status = Some(error.to_string());
+                String::new()
+            }
+        };
+    }
+
     /// Auto-completes the active focus pomo once its countdown reaches zero.
     fn tick(&mut self, now: DateTime<Utc>) {
         let expired = match (&self.active_task, &self.active_session) {
@@ -226,6 +290,57 @@ where
             }
             Action::CloseSettings => {
                 self.settings = None;
+                return;
+            }
+            Action::SwitchView(view) => {
+                self.view = view;
+                if view == View::Notes {
+                    self.refresh_notes();
+                }
+                return;
+            }
+            Action::SearchNotes => {
+                self.refresh_notes();
+                return;
+            }
+            Action::NewNote => {
+                match self.service.create_note("Untitled", "", now) {
+                    Ok(note) => {
+                        self.refresh_notes();
+                        self.select_note(note.id());
+                    }
+                    Err(error) => self.status = Some(error.to_string()),
+                }
+                return;
+            }
+            Action::SelectNote(id) => {
+                self.select_note(id);
+                return;
+            }
+            Action::SaveNote(id) => {
+                let tags = parse_tags(&self.note_tags_input);
+                let saved = self
+                    .service
+                    .save_note_content(id, self.note_title.clone(), self.note_body.clone(), now)
+                    .and_then(|_| self.service.set_note_tags(id, &tags));
+                if let Err(error) = saved {
+                    self.status = Some(error.to_string());
+                }
+                self.refresh_notes();
+                return;
+            }
+            Action::PinNote(id, pinned) => {
+                if let Err(error) = self.service.set_note_pinned(id, pinned, now) {
+                    self.status = Some(error.to_string());
+                }
+                self.refresh_notes();
+                return;
+            }
+            Action::ArchiveNote(id, archived) => {
+                if let Err(error) = self.service.set_note_archived(id, archived, now) {
+                    self.status = Some(error.to_string());
+                }
+                self.refresh_notes();
                 return;
             }
             Action::SaveSettings => {
@@ -272,7 +387,7 @@ where
 
 impl<S> eframe::App for JotphantApp<S>
 where
-    S: TaskRepository + SessionRepository + BankRepository + Transactional,
+    S: TaskRepository + SessionRepository + BankRepository + NoteRepository + Transactional,
 {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let now = Utc::now();
@@ -288,79 +403,118 @@ where
                 if ui.button("Settings").clicked() {
                     action = Some(Action::OpenSettings);
                 }
+                ui.separator();
+                if ui
+                    .selectable_label(self.view == View::Board, "Board")
+                    .clicked()
+                {
+                    action = Some(Action::SwitchView(View::Board));
+                }
+                if ui
+                    .selectable_label(self.view == View::Notes, "Notes")
+                    .clicked()
+                {
+                    action = Some(Action::SwitchView(View::Notes));
+                }
             });
             if let Some(message) = &self.status {
                 ui.colored_label(egui::Color32::RED, message);
             }
             ui.separator();
 
-            ui.columns(COLUMNS.len(), |columns| {
-                for (index, (status, title)) in COLUMNS.iter().enumerate() {
-                    let ui = &mut columns[index];
-                    let count = self.tasks.iter().filter(|t| t.status() == *status).count();
-                    ui.strong(format!("{title}  ({count})"));
-                    ui.separator();
+            match self.view {
+                View::Board => {
+                    ui.columns(COLUMNS.len(), |columns| {
+                        for (index, (status, title)) in COLUMNS.iter().enumerate() {
+                            let ui = &mut columns[index];
+                            let count = self.tasks.iter().filter(|t| t.status() == *status).count();
+                            ui.strong(format!("{title}  ({count})"));
+                            ui.separator();
 
-                    egui::ScrollArea::vertical()
-                        .id_salt(*title)
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            let (_, dropped) = ui.dnd_drop_zone::<TaskId, ()>(
-                                egui::Frame::default(),
-                                |ui| {
-                                    ui.set_min_height(60.0);
-                                    let mut any = false;
-                                    for task in self.tasks.iter().filter(|t| t.status() == *status) {
-                                        any = true;
-                                        let completed =
-                                            self.progress.get(&task.id()).copied().unwrap_or(0);
-                                        let is_active = Some(task.id())
-                                            == self.active_task.as_ref().map(Task::id);
-                                        let session = if is_active {
-                                            self.active_session.as_ref()
-                                        } else {
-                                            None
-                                        };
-                                        let pending = if is_active && session.is_none() {
-                                            self.pending_phase
-                                        } else {
-                                            None
-                                        };
-                                        if let Some(card_action) =
-                                            card_ui(ui, task, completed, session, pending, now)
-                                        {
-                                            action = Some(card_action);
-                                        }
+                            egui::ScrollArea::vertical()
+                                .id_salt(*title)
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    let (_, dropped) = ui.dnd_drop_zone::<TaskId, ()>(
+                                        egui::Frame::default(),
+                                        |ui| {
+                                            ui.set_min_height(60.0);
+                                            let mut any = false;
+                                            for task in
+                                                self.tasks.iter().filter(|t| t.status() == *status)
+                                            {
+                                                any = true;
+                                                let completed = self
+                                                    .progress
+                                                    .get(&task.id())
+                                                    .copied()
+                                                    .unwrap_or(0);
+                                                let is_active = Some(task.id())
+                                                    == self.active_task.as_ref().map(Task::id);
+                                                let session = if is_active {
+                                                    self.active_session.as_ref()
+                                                } else {
+                                                    None
+                                                };
+                                                let pending = if is_active && session.is_none() {
+                                                    self.pending_phase
+                                                } else {
+                                                    None
+                                                };
+                                                if let Some(card_action) = card_ui(
+                                                    ui, task, completed, session, pending, now,
+                                                ) {
+                                                    action = Some(card_action);
+                                                }
+                                            }
+                                            if !any {
+                                                ui.weak("Drop here");
+                                            }
+                                        },
+                                    );
+                                    if let Some(dropped_id) = dropped
+                                        && let Some(dropped_action) =
+                                            resolve_drop(*status, *dropped_id, &self.tasks)
+                                    {
+                                        action = Some(dropped_action);
                                     }
-                                    if !any {
-                                        ui.weak("Drop here");
-                                    }
-                                },
-                            );
-                            if let Some(dropped_id) = dropped
-                                && let Some(dropped_action) =
-                                    resolve_drop(*status, *dropped_id, &self.tasks)
-                            {
-                                action = Some(dropped_action);
-                            }
 
-                            if *status == TaskStatus::Todo {
-                                ui.separator();
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.new_title)
-                                        .hint_text("New task title"),
-                                );
-                                ui.horizontal(|ui| {
-                                    ui.label("est");
-                                    ui.add(egui::DragValue::new(&mut self.new_estimate).range(0..=999));
-                                    if ui.button("Add").clicked() {
-                                        action = Some(Action::Create);
+                                    if *status == TaskStatus::Todo {
+                                        ui.separator();
+                                        ui.add(
+                                            egui::TextEdit::singleline(&mut self.new_title)
+                                                .hint_text("New task title"),
+                                        );
+                                        ui.horizontal(|ui| {
+                                            ui.label("est");
+                                            ui.add(
+                                                egui::DragValue::new(&mut self.new_estimate)
+                                                    .range(0..=999),
+                                            );
+                                            if ui.button("Add").clicked() {
+                                                action = Some(Action::Create);
+                                            }
+                                        });
                                     }
                                 });
-                            }
-                        });
+                        }
+                    });
                 }
-            });
+                View::Notes => {
+                    notes_view(
+                        ui,
+                        &self.notes,
+                        self.selected_note,
+                        &mut self.note_search,
+                        &mut self.note_title,
+                        &mut self.note_tags_input,
+                        &mut self.note_body,
+                        &mut self.note_preview,
+                        &mut self.md_cache,
+                        &mut action,
+                    );
+                }
+            }
         });
 
         if let Some(selected_id) = self.selected {
@@ -375,7 +529,11 @@ where
                 ui.heading(task.title());
                 ui.label(format!("Status: {:?}", task.status()));
                 let completed = self.progress.get(&selected_id).copied().unwrap_or(0);
-                ui.label(format!("Progress: {}/{} pomos", completed, task.estimated_pomos()));
+                ui.label(format!(
+                    "Progress: {}/{} pomos",
+                    completed,
+                    task.estimated_pomos()
+                ));
 
                 if task.status() == TaskStatus::InProgress {
                     if let Some(session) = self.active_session.as_ref() {
@@ -453,29 +611,34 @@ where
             let response = egui::Modal::new(egui::Id::new("settings")).show(&ctx, |ui| {
                 ui.set_width(340.0);
                 ui.heading("Settings");
-                egui::Grid::new("settings_grid").num_columns(2).show(ui, |ui| {
-                    ui.label("Focus (min)");
-                    ui.add(egui::DragValue::new(&mut draft.focus_minutes).range(1..=180));
-                    ui.end_row();
-                    ui.label("Short break (min)");
-                    ui.add(egui::DragValue::new(&mut draft.short_break_minutes).range(1..=60));
-                    ui.end_row();
-                    ui.label("Long break (min)");
-                    ui.add(egui::DragValue::new(&mut draft.long_break_minutes).range(1..=120));
-                    ui.end_row();
-                    ui.label("Long break after");
-                    ui.add(egui::DragValue::new(&mut draft.long_break_after).range(1..=12));
-                    ui.end_row();
-                    ui.label("Auto-start breaks");
-                    ui.checkbox(&mut draft.auto_start_break, "");
-                    ui.end_row();
-                    ui.label("Auto-start focus");
-                    ui.checkbox(&mut draft.auto_start_focus, "");
-                    ui.end_row();
-                    ui.label("Leisure min / pomo");
-                    ui.add(egui::DragValue::new(&mut draft.leisure_minutes_per_pomo).range(0..=120));
-                    ui.end_row();
-                });
+                egui::Grid::new("settings_grid")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.label("Focus (min)");
+                        ui.add(egui::DragValue::new(&mut draft.focus_minutes).range(1..=180));
+                        ui.end_row();
+                        ui.label("Short break (min)");
+                        ui.add(egui::DragValue::new(&mut draft.short_break_minutes).range(1..=60));
+                        ui.end_row();
+                        ui.label("Long break (min)");
+                        ui.add(egui::DragValue::new(&mut draft.long_break_minutes).range(1..=120));
+                        ui.end_row();
+                        ui.label("Long break after");
+                        ui.add(egui::DragValue::new(&mut draft.long_break_after).range(1..=12));
+                        ui.end_row();
+                        ui.label("Auto-start breaks");
+                        ui.checkbox(&mut draft.auto_start_break, "");
+                        ui.end_row();
+                        ui.label("Auto-start focus");
+                        ui.checkbox(&mut draft.auto_start_focus, "");
+                        ui.end_row();
+                        ui.label("Leisure min / pomo");
+                        ui.add(
+                            egui::DragValue::new(&mut draft.leisure_minutes_per_pomo)
+                                .range(0..=120),
+                        );
+                        ui.end_row();
+                    });
                 ui.separator();
                 ui.horizontal(|ui| {
                     if ui.button("Save").clicked() {
@@ -500,6 +663,117 @@ where
             ui.ctx().request_repaint_after(Duration::from_millis(500));
         }
     }
+}
+
+/// Splits a comma-separated tag input into trimmed, non-empty tags.
+fn parse_tags(input: &str) -> Vec<String> {
+    input
+        .split(',')
+        .map(|tag| tag.trim().to_owned())
+        .filter(|tag| !tag.is_empty())
+        .collect()
+}
+
+/// Renders the notes screen (list + editor) from the app's disjoint note fields.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "renders the notes screen from disjoint app fields"
+)]
+fn notes_view(
+    ui: &mut egui::Ui,
+    notes: &[Note],
+    selected_note: Option<NoteId>,
+    note_search: &mut String,
+    note_title: &mut String,
+    note_tags_input: &mut String,
+    note_body: &mut String,
+    note_preview: &mut bool,
+    md_cache: &mut CommonMarkCache,
+    action: &mut Option<Action>,
+) {
+    ui.columns(2, |cols| {
+        {
+            let ui = &mut cols[0];
+            ui.horizontal(|ui| {
+                if ui.button("New note").clicked() {
+                    *action = Some(Action::NewNote);
+                }
+                if ui
+                    .add(egui::TextEdit::singleline(note_search).hint_text("Search"))
+                    .changed()
+                {
+                    *action = Some(Action::SearchNotes);
+                }
+            });
+            ui.separator();
+            egui::ScrollArea::vertical()
+                .id_salt("notes_list")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for note in notes {
+                        let mut label = String::new();
+                        if note.pinned() {
+                            label.push_str("* ");
+                        }
+                        label.push_str(note.title());
+                        if note.archived() {
+                            label.push_str(" (archived)");
+                        }
+                        if ui
+                            .selectable_label(Some(note.id()) == selected_note, label)
+                            .clicked()
+                        {
+                            *action = Some(Action::SelectNote(note.id()));
+                        }
+                    }
+                });
+        }
+        {
+            let ui = &mut cols[1];
+            if let Some(note_id) = selected_note {
+                ui.add(egui::TextEdit::singleline(note_title).hint_text("Title"));
+                ui.add(
+                    egui::TextEdit::singleline(note_tags_input).hint_text("tags, comma separated"),
+                );
+                ui.horizontal(|ui| {
+                    if ui.button("Save").clicked() {
+                        *action = Some(Action::SaveNote(note_id));
+                    }
+                    ui.checkbox(note_preview, "Preview");
+                    if let Some(note) = notes.iter().find(|note| note.id() == note_id) {
+                        let pinned = note.pinned();
+                        if ui.button(if pinned { "Unpin" } else { "Pin" }).clicked() {
+                            *action = Some(Action::PinNote(note_id, !pinned));
+                        }
+                        let archived = note.archived();
+                        if ui
+                            .button(if archived { "Unarchive" } else { "Archive" })
+                            .clicked()
+                        {
+                            *action = Some(Action::ArchiveNote(note_id, !archived));
+                        }
+                    }
+                });
+                ui.separator();
+                egui::ScrollArea::vertical()
+                    .id_salt("note_editor")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        if *note_preview {
+                            CommonMarkViewer::new().show(ui, md_cache, note_body.as_str());
+                        } else {
+                            ui.add(
+                                egui::TextEdit::multiline(note_body)
+                                    .desired_rows(18)
+                                    .desired_width(f32::INFINITY),
+                            );
+                        }
+                    });
+            } else {
+                ui.label("Select or create a note.");
+            }
+        }
+    });
 }
 
 /// Renders one task card and returns the action its buttons requested, if any.

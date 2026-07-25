@@ -42,8 +42,14 @@ impl TaskStatus {
         matches!(
             (self, target),
             (Self::Todo, Self::InProgress)
-                | (Self::InProgress, Self::Paused | Self::Done | Self::Cancelled)
-                | (Self::Paused, Self::InProgress | Self::Done | Self::Cancelled)
+                | (
+                    Self::InProgress,
+                    Self::Paused | Self::Done | Self::Cancelled
+                )
+                | (
+                    Self::Paused,
+                    Self::InProgress | Self::Done | Self::Cancelled
+                )
         )
     }
 
@@ -105,12 +111,7 @@ pub struct Task {
 impl Task {
     /// Creates a new task in the [`TaskStatus::Todo`] state.
     #[must_use]
-    pub fn new(
-        id: TaskId,
-        title: String,
-        estimated_pomos: u32,
-        created_at: DateTime<Utc>,
-    ) -> Self {
+    pub fn new(id: TaskId, title: String, estimated_pomos: u32, created_at: DateTime<Utc>) -> Self {
         Self {
             id,
             title,
@@ -250,7 +251,11 @@ mod tests {
 
     #[test]
     fn paused_can_resume_complete_or_cancel() {
-        for target in [TaskStatus::InProgress, TaskStatus::Done, TaskStatus::Cancelled] {
+        for target in [
+            TaskStatus::InProgress,
+            TaskStatus::Done,
+            TaskStatus::Cancelled,
+        ] {
             assert!(TaskStatus::Paused.can_transition_to(target));
         }
     }

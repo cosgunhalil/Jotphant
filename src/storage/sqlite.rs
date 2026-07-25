@@ -63,8 +63,7 @@ impl SqliteStore {
 
 // --- Column lists (kept in one place so SELECTs and row mappers stay in sync) ---
 
-const TASK_COLUMNS: &str =
-    "id, title, description, status, estimated_pomos, linked_from_task_id, created_at, completed_at";
+const TASK_COLUMNS: &str = "id, title, description, status, estimated_pomos, linked_from_task_id, created_at, completed_at";
 const SESSION_COLUMNS: &str =
     "id, task_id, phase, status, configured_duration_seconds, started_at, finished_at";
 const BANK_COLUMNS: &str = "id, task_id, amount_pomos, transaction_type, created_at";
@@ -347,8 +346,9 @@ impl SessionRepository for SqliteStore {
         &self,
         task_id: TaskId,
     ) -> Result<Vec<PomodoroSession>, RepositoryError> {
-        let sql =
-            format!("SELECT {SESSION_COLUMNS} FROM pomodoro_sessions WHERE task_id = ?1 ORDER BY id");
+        let sql = format!(
+            "SELECT {SESSION_COLUMNS} FROM pomodoro_sessions WHERE task_id = ?1 ORDER BY id"
+        );
         let mut stmt = self.conn.prepare(&sql)?;
         let mut rows = stmt.query(params![task_id.value()])?;
         let mut sessions = Vec::new();
