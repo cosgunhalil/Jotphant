@@ -13,6 +13,7 @@ pub mod repository;
 pub mod reward;
 pub mod session;
 pub mod task;
+pub mod wikilink;
 
 pub use bank::{BankTransaction, BankTransactionType};
 pub use config::AppConfig;

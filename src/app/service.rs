@@ -13,6 +13,7 @@ use crate::domain::repository::{
 use crate::domain::reward;
 use crate::domain::session::{PomodoroSession, SessionStatus, TimerPhase};
 use crate::domain::task::{Task, TaskStatus};
+use crate::domain::wikilink;
 
 /// Orchestrates the task workflow over injected repository ports.
 ///
@@ -342,6 +343,7 @@ where
         now: DateTime<Utc>,
     ) -> Result<Note, Error> {
         let note = self.store.create_note(title, body_markdown, None, now)?;
+        self.update_links_for(&note)?;
         Ok(note)
     }
 
@@ -379,7 +381,46 @@ where
         note.set_body(body_markdown);
         note.touch(now);
         self.store.update_note(&note)?;
+        self.update_links_for(&note)?;
         Ok(note)
+    }
+
+    /// Parses `[[wiki-links]]` from a note's body, resolves them to existing notes by
+    /// title, and stores the resulting outgoing links.
+    fn update_links_for(&self, note: &Note) -> Result<(), Error> {
+        let targets = wikilink::extract_links(note.body_markdown());
+        let ids = if targets.is_empty() {
+            Vec::new()
+        } else {
+            let all = self.store.list_notes()?;
+            targets
+                .iter()
+                .filter_map(|target| {
+                    all.iter()
+                        .find(|candidate| {
+                            candidate.title() == target.as_str() && candidate.id() != note.id()
+                        })
+                        .map(Note::id)
+                })
+                .collect()
+        };
+        self.store.set_note_links(note.id(), &ids)?;
+        Ok(())
+    }
+
+    /// Returns the notes that link to the given note (its backlinks).
+    ///
+    /// # Errors
+    /// Returns a storage error if a query fails.
+    pub fn note_backlinks(&self, id: NoteId) -> Result<Vec<Note>, Error> {
+        let ids = self.store.backlinks(id)?;
+        let mut notes = Vec::new();
+        for backlink_id in ids {
+            if let Some(note) = self.store.get_note(backlink_id)? {
+                notes.push(note);
+            }
+        }
+        Ok(notes)
     }
 
     /// Sets a note's pinned flag.
@@ -761,6 +802,27 @@ mod tests {
         let listed = service.list_notes().expect("list");
         assert_eq!(listed.len(), 1);
         assert!(listed[0].pinned());
+    }
+
+    #[test]
+    fn wikilinks_in_a_note_body_create_backlinks() {
+        let service = service();
+        let target = service.create_note("Target", "", ts()).expect("create target");
+        let source = service.create_note("Source", "", ts()).expect("create source");
+
+        service
+            .save_note_content(source.id(), "Source".to_owned(), "see [[Target]]".to_owned(), ts())
+            .expect("save source");
+
+        let backlinks = service.note_backlinks(target.id()).expect("backlinks");
+        assert_eq!(backlinks.len(), 1);
+        assert_eq!(backlinks[0].id(), source.id());
+
+        // A dangling link to a non-existent title is simply ignored.
+        service
+            .save_note_content(source.id(), "Source".to_owned(), "[[Nope]]".to_owned(), ts())
+            .expect("save with dangling link");
+        assert!(service.note_backlinks(target.id()).expect("backlinks").is_empty());
     }
 
     #[test]

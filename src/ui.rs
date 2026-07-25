@@ -131,6 +131,7 @@ pub struct JotphantApp<S> {
     note_body: String,
     note_tags_input: String,
     note_preview: bool,
+    note_backlinks: Vec<Note>,
     md_cache: CommonMarkCache,
 }
 
@@ -165,6 +166,7 @@ where
             note_body: String::new(),
             note_tags_input: String::new(),
             note_preview: false,
+            note_backlinks: Vec::new(),
             md_cache: CommonMarkCache::default(),
         };
         // Catch up any timer that elapsed while the app was closed, then load state.
@@ -251,6 +253,7 @@ where
                 String::new()
             }
         };
+        self.note_backlinks = self.service.note_backlinks(id).unwrap_or_default();
     }
 
     /// Auto-completes the active focus pomo once its countdown reaches zero.
@@ -327,6 +330,7 @@ where
                     self.status = Some(error.to_string());
                 }
                 self.refresh_notes();
+                self.note_backlinks = self.service.note_backlinks(id).unwrap_or_default();
                 return;
             }
             Action::PinNote(id, pinned) => {
@@ -505,6 +509,7 @@ where
                         ui,
                         &self.notes,
                         self.selected_note,
+                        &self.note_backlinks,
                         &mut self.note_search,
                         &mut self.note_title,
                         &mut self.note_tags_input,
@@ -683,6 +688,7 @@ fn notes_view(
     ui: &mut egui::Ui,
     notes: &[Note],
     selected_note: Option<NoteId>,
+    note_backlinks: &[Note],
     note_search: &mut String,
     note_title: &mut String,
     note_tags_input: &mut String,
@@ -754,6 +760,15 @@ fn notes_view(
                         }
                     }
                 });
+                if !note_backlinks.is_empty() {
+                    ui.separator();
+                    ui.label("Backlinks:");
+                    for note in note_backlinks {
+                        if ui.link(note.title()).clicked() {
+                            *action = Some(Action::SelectNote(note.id()));
+                        }
+                    }
+                }
                 ui.separator();
                 egui::ScrollArea::vertical()
                     .id_salt("note_editor")

@@ -60,7 +60,7 @@ click-to-open card detail, task descriptions.
 - [x] 3.1 Notes domain + storage: `Note`, tags, links; migrations (test-first)
 - [x] 3.2 Notes UI: list, Markdown edit + preview, search, tags, pin/archive —
       *adds `egui_commonmark`*
-- [ ] 3.3 `[[wiki-link]]` parsing + backlinks view (test-first parser)
+- [x] 3.3 `[[wiki-link]]` parsing + backlinks view (test-first parser)
 - [ ] 3.4 Quick-jot box during active focus → attaches note to active task
 
 ## M4 — Notifications & polish
