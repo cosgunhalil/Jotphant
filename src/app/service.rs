@@ -504,6 +504,34 @@ mod tests {
     }
 
     #[test]
+    fn cancel_from_paused_is_allowed() {
+        let service = service();
+        let task = service.create_task("shelve it", 2, ts()).expect("create");
+        service.start_task(task.id(), ts()).expect("start");
+        service.pause_task(task.id(), ts()).expect("pause");
+
+        let cancelled = service.cancel_task(task.id(), ts()).expect("cancel");
+        assert_eq!(cancelled.status(), TaskStatus::Cancelled);
+    }
+
+    #[test]
+    fn cancelled_task_keeps_measured_effort_but_earns_no_reward() {
+        let service = service();
+        let task = service.create_task("half done", 4, ts()).expect("create");
+        service.start_task(task.id(), ts()).expect("start");
+        service
+            .advance_pomodoro(task.id(), ts())
+            .expect("one focus pomo -> break");
+
+        service.cancel_task(task.id(), ts()).expect("cancel");
+
+        // The completed focus pomo remains as measured effort (history)...
+        assert_eq!(service.completed_pomos(task.id()).expect("effort"), 1);
+        // ...but it generated no bank reward.
+        assert_eq!(service.bank_balance().expect("balance"), 0);
+    }
+
+    #[test]
     fn cannot_cancel_a_todo_task() {
         let service = service();
         let task = service.create_task("never started", 1, ts()).expect("create");

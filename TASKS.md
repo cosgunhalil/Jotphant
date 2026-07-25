@@ -46,7 +46,7 @@ click-to-open card detail, task descriptions.
 - [x] 1.1 `paused` status + all transitions; single-active-task auto-pause on switch (test-first)
 - [x] 1.2 Pomodoro cycle engine: Focus→ShortBreak→LongBreak, `long_break_after`,
       auto-start rules, skip-break, abandon-pomo (test-first)
-- [ ] 1.3 Cancellation flow: discard unbanked, keep sessions as history (test-first)
+- [x] 1.3 Cancellation flow: discard unbanked, keep sessions as history (verified)
 - [ ] 1.4 Timer persistence & restore across restart from timestamps (test-first + wiring)
 
 ## M2 — Configuration
