@@ -48,24 +48,34 @@ where
 
     /// Moves a task into progress and starts a focus session.
     ///
-    /// Enforces the single-active-task invariant: if a *different* task is already
-    /// active, the call is rejected (auto-pause-on-switch arrives in M1).
+    /// Preserves the single-active-task invariant by **auto-pausing** any other active
+    /// task first (abandoning its running pomo), then activating the requested one — all
+    /// in one transaction.
     ///
     /// # Errors
-    /// Returns [`Error::TaskNotFound`] if the task does not exist,
-    /// [`Error::TaskAlreadyActive`] if another task is active, [`Error::Transition`] if
-    /// the task cannot move to in-progress, or a storage error.
+    /// Returns [`Error::TaskNotFound`] if the task does not exist, [`Error::Transition`]
+    /// if the task cannot move to in-progress, or a storage error.
     pub fn start_task(&self, task_id: TaskId, now: DateTime<Utc>) -> Result<Task, Error> {
-        if let Some(active) = self.store.find_active_task()?
-            && active.id() != task_id
-        {
-            return Err(Error::TaskAlreadyActive);
-        }
-
         let mut task = self.store.get_task(task_id)?.ok_or(Error::TaskNotFound)?;
         task.apply_transition(TaskStatus::InProgress, now)?;
 
+        // If a different task is active, pause it and abandon its running pomo.
+        let paused = match self.store.find_active_task()? {
+            Some(mut active) if active.id() != task_id => {
+                active.apply_transition(TaskStatus::Paused, now)?;
+                let abandoned = self.collect_abandoned_running(active.id(), now)?;
+                Some((active, abandoned))
+            }
+            _ => None,
+        };
+
         self.store.transaction(|| {
+            if let Some((active, abandoned)) = &paused {
+                for session in abandoned {
+                    self.store.update_session(session)?;
+                }
+                self.store.update_task(active)?;
+            }
             self.store.update_task(&task)?;
             self.store
                 .create_session(task_id, TimerPhase::Focus, DEFAULT_FOCUS_SECONDS, now)?;
@@ -299,16 +309,36 @@ mod tests {
     }
 
     #[test]
-    fn start_task_rejects_a_second_active_task() {
+    fn starting_another_task_auto_pauses_the_active_one() {
         let service = service();
         let first = service.create_task("first", 1, ts()).expect("create");
         let second = service.create_task("second", 1, ts()).expect("create");
         service.start_task(first.id(), ts()).expect("start first");
 
-        let error = service
-            .start_task(second.id(), ts())
-            .expect_err("only one active task allowed");
-        assert!(matches!(error, Error::TaskAlreadyActive));
+        let started = service.start_task(second.id(), ts()).expect("start second");
+        assert_eq!(started.status(), TaskStatus::InProgress);
+
+        // The previously active task is now paused, and its running pomo was abandoned.
+        let first_now = service
+            .list_tasks()
+            .expect("list")
+            .into_iter()
+            .find(|candidate| candidate.id() == first.id())
+            .expect("first exists");
+        assert_eq!(first_now.status(), TaskStatus::Paused);
+        assert!(
+            service
+                .active_focus_session(first.id())
+                .expect("query")
+                .is_none()
+        );
+
+        // Exactly one task is active, and it is the second one.
+        let active = service
+            .active_task()
+            .expect("query")
+            .expect("an active task");
+        assert_eq!(active.id(), second.id());
     }
 
     #[test]

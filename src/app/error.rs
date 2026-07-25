@@ -12,9 +12,6 @@ pub enum Error {
     /// The operation requires an active (in-progress or paused) task.
     #[error("task is not active")]
     TaskNotActive,
-    /// Another task already holds the active slot (only one may be in progress).
-    #[error("another task is already active")]
-    TaskAlreadyActive,
     /// The task has no running focus session to complete.
     #[error("no running focus session for the task")]
     NoRunningPomo,
