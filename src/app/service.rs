@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use crate::app::error::Error;
 use crate::domain::bank::{self, BankTransactionType};
 use crate::domain::ids::TaskId;
+use crate::domain::pomodoro::PomodoroConfig;
 use crate::domain::repository::{
     BankRepository, SessionRepository, TaskRepository, Transactional,
 };
@@ -12,24 +13,22 @@ use crate::domain::reward;
 use crate::domain::session::{PomodoroSession, SessionStatus, TimerPhase};
 use crate::domain::task::{Task, TaskStatus};
 
-/// The focus duration used until configuration arrives (M2). 25 minutes.
-const DEFAULT_FOCUS_SECONDS: u32 = 25 * 60;
-
 /// Orchestrates the task workflow over injected repository ports.
 ///
 /// `S` is any store implementing the persistence ports; the composition root injects a
 /// concrete one, while tests can inject an in-memory store or a fake.
 pub struct TaskService<S> {
     store: S,
+    config: PomodoroConfig,
 }
 
 impl<S> TaskService<S>
 where
     S: TaskRepository + SessionRepository + BankRepository + Transactional,
 {
-    /// Creates a service over `store`.
-    pub fn new(store: S) -> Self {
-        Self { store }
+    /// Creates a service over `store` with the given Pomodoro configuration.
+    pub fn new(store: S, config: PomodoroConfig) -> Self {
+        Self { store, config }
     }
 
     /// Creates a new `Todo` task.
@@ -77,28 +76,50 @@ where
                 self.store.update_task(active)?;
             }
             self.store.update_task(&task)?;
-            self.store
-                .create_session(task_id, TimerPhase::Focus, DEFAULT_FOCUS_SECONDS, now)?;
+            self.store.create_session(
+                task_id,
+                TimerPhase::Focus,
+                self.config.duration_seconds(TimerPhase::Focus),
+                now,
+            )?;
             Ok(())
         })?;
         Ok(task)
     }
 
-    /// Records the task's running focus session as completed (a pomo reached zero).
+    /// Advances the Pomodoro cycle: completes the task's running session and, per the
+    /// config's auto-start policy, starts the next phase (focus → break → focus …).
+    ///
+    /// Called both when a phase's timer reaches zero and when the user skips a break.
     ///
     /// # Errors
-    /// Returns [`Error::NoRunningPomo`] if the task has no running focus session, or a
+    /// Returns [`Error::NoRunningSession`] if the task has no running session, or a
     /// storage error.
-    pub fn complete_active_pomo(&self, task_id: TaskId, now: DateTime<Utc>) -> Result<(), Error> {
+    pub fn advance_pomodoro(&self, task_id: TaskId, now: DateTime<Utc>) -> Result<(), Error> {
         let mut sessions = self.store.list_sessions_for_task(task_id)?;
-        let session = sessions
-            .iter_mut()
-            .find(|session| {
-                session.status() == SessionStatus::Running && session.phase() == TimerPhase::Focus
-            })
-            .ok_or(Error::NoRunningPomo)?;
-        session.complete(now);
-        self.store.update_session(session)?;
+        let Some(index) = sessions
+            .iter()
+            .position(|session| session.status() == SessionStatus::Running)
+        else {
+            return Err(Error::NoRunningSession);
+        };
+
+        let completed_phase = sessions[index].phase();
+        sessions[index].complete(now);
+        let completed_session = sessions[index].clone();
+
+        let completed_focus = reward::completed_focus_pomos(&sessions);
+        let next_phase = self.config.next_phase(completed_phase, completed_focus);
+        let auto_start = self.config.should_auto_start(next_phase);
+        let duration = self.config.duration_seconds(next_phase);
+
+        self.store.transaction(|| {
+            self.store.update_session(&completed_session)?;
+            if auto_start {
+                self.store.create_session(task_id, next_phase, duration, now)?;
+            }
+            Ok(())
+        })?;
         Ok(())
     }
 
@@ -257,18 +278,16 @@ where
         Ok(bank::balance(&ledger))
     }
 
-    /// Returns the task's running focus session, if any (used by the UI countdown).
+    /// Returns the task's running session of any phase, if any (used by the UI countdown).
     ///
     /// # Errors
     /// Returns a storage error if the query fails.
-    pub fn active_focus_session(
-        &self,
-        task_id: TaskId,
-    ) -> Result<Option<PomodoroSession>, Error> {
+    pub fn running_session(&self, task_id: TaskId) -> Result<Option<PomodoroSession>, Error> {
         let sessions = self.store.list_sessions_for_task(task_id)?;
-        Ok(sessions.into_iter().rev().find(|session| {
-            session.status() == SessionStatus::Running && session.phase() == TimerPhase::Focus
-        }))
+        Ok(sessions
+            .into_iter()
+            .rev()
+            .find(|session| session.status() == SessionStatus::Running))
     }
 }
 
@@ -282,7 +301,10 @@ mod tests {
     }
 
     fn service() -> TaskService<SqliteStore> {
-        TaskService::new(SqliteStore::open_in_memory().expect("in-memory store"))
+        TaskService::new(
+            SqliteStore::open_in_memory().expect("in-memory store"),
+            PomodoroConfig::default(),
+        )
     }
 
     #[test]
@@ -301,7 +323,7 @@ mod tests {
         assert_eq!(started.status(), TaskStatus::InProgress);
 
         let session = service
-            .active_focus_session(task.id())
+            .running_session(task.id())
             .expect("query")
             .expect("running session");
         assert_eq!(session.phase(), TimerPhase::Focus);
@@ -328,7 +350,7 @@ mod tests {
         assert_eq!(first_now.status(), TaskStatus::Paused);
         assert!(
             service
-                .active_focus_session(first.id())
+                .running_session(first.id())
                 .expect("query")
                 .is_none()
         );
@@ -356,7 +378,7 @@ mod tests {
         let task = service.create_task("one and done", 1, ts()).expect("create");
         service.start_task(task.id(), ts()).expect("start");
         service
-            .complete_active_pomo(task.id(), ts())
+            .advance_pomodoro(task.id(), ts())
             .expect("complete pomo");
         service.complete_task(task.id(), ts()).expect("complete");
 
@@ -372,7 +394,7 @@ mod tests {
         let task = service.create_task("ship it", 2, ts()).expect("create");
         service.start_task(task.id(), ts()).expect("start");
         service
-            .complete_active_pomo(task.id(), ts())
+            .advance_pomodoro(task.id(), ts())
             .expect("complete pomo");
 
         let earned = service.complete_task(task.id(), ts()).expect("complete task");
@@ -399,7 +421,7 @@ mod tests {
         assert_eq!(service.bank_balance().expect("balance"), 0);
         assert!(
             service
-                .active_focus_session(task.id())
+                .running_session(task.id())
                 .expect("query")
                 .is_none()
         );
@@ -415,7 +437,7 @@ mod tests {
         assert_eq!(paused.status(), TaskStatus::Paused);
         assert!(
             service
-                .active_focus_session(task.id())
+                .running_session(task.id())
                 .expect("query")
                 .is_none()
         );
@@ -432,7 +454,7 @@ mod tests {
         assert_eq!(resumed.status(), TaskStatus::InProgress);
         assert!(
             service
-                .active_focus_session(task.id())
+                .running_session(task.id())
                 .expect("query")
                 .is_some()
         );
@@ -444,12 +466,12 @@ mod tests {
         let task = service.create_task("two sittings", 2, ts()).expect("create");
         service.start_task(task.id(), ts()).expect("start");
         service
-            .complete_active_pomo(task.id(), ts())
+            .advance_pomodoro(task.id(), ts())
             .expect("first pomo");
         service.pause_task(task.id(), ts()).expect("pause");
         service.start_task(task.id(), ts()).expect("resume");
         service
-            .complete_active_pomo(task.id(), ts())
+            .advance_pomodoro(task.id(), ts())
             .expect("second pomo");
 
         let earned = service.complete_task(task.id(), ts()).expect("complete");
@@ -473,7 +495,7 @@ mod tests {
         let task = service.create_task("abandon ship", 2, ts()).expect("create");
         service.start_task(task.id(), ts()).expect("start");
         service
-            .complete_active_pomo(task.id(), ts())
+            .advance_pomodoro(task.id(), ts())
             .expect("one pomo done");
 
         let cancelled = service.cancel_task(task.id(), ts()).expect("cancel");
@@ -509,6 +531,72 @@ mod tests {
             .find(|candidate| candidate.id() == task.id())
             .expect("exists");
         assert_eq!(reloaded.description(), "the full story");
+    }
+
+    #[test]
+    fn completing_a_focus_auto_starts_a_short_break() {
+        let service = service();
+        let task = service.create_task("cycle", 4, ts()).expect("create");
+        service.start_task(task.id(), ts()).expect("start");
+
+        service.advance_pomodoro(task.id(), ts()).expect("advance");
+        let running = service
+            .running_session(task.id())
+            .expect("query")
+            .expect("a break is running");
+        assert_eq!(running.phase(), TimerPhase::ShortBreak);
+        assert_eq!(running.status(), SessionStatus::Running);
+    }
+
+    #[test]
+    fn completing_a_break_auto_starts_a_focus() {
+        let service = service();
+        let task = service.create_task("cycle", 4, ts()).expect("create");
+        service.start_task(task.id(), ts()).expect("start");
+        service.advance_pomodoro(task.id(), ts()).expect("focus -> break");
+
+        service.advance_pomodoro(task.id(), ts()).expect("break -> focus");
+        let running = service
+            .running_session(task.id())
+            .expect("query")
+            .expect("a focus is running");
+        assert_eq!(running.phase(), TimerPhase::Focus);
+    }
+
+    #[test]
+    fn every_fourth_focus_leads_to_a_long_break() {
+        let service = service(); // default long_break_after = 4
+        let task = service.create_task("cycle", 8, ts()).expect("create");
+        service.start_task(task.id(), ts()).expect("start");
+
+        // Complete three focus pomos, each followed by a short break.
+        for _ in 0..3 {
+            service.advance_pomodoro(task.id(), ts()).expect("focus -> break");
+            let running = service
+                .running_session(task.id())
+                .expect("query")
+                .expect("break");
+            assert_eq!(running.phase(), TimerPhase::ShortBreak);
+            service.advance_pomodoro(task.id(), ts()).expect("break -> focus");
+        }
+
+        // The fourth focus completes -> long break.
+        service.advance_pomodoro(task.id(), ts()).expect("fourth focus");
+        let running = service
+            .running_session(task.id())
+            .expect("query")
+            .expect("long break");
+        assert_eq!(running.phase(), TimerPhase::LongBreak);
+    }
+
+    #[test]
+    fn advancing_with_no_running_session_errors() {
+        let service = service();
+        let task = service.create_task("idle", 1, ts()).expect("create");
+        let error = service
+            .advance_pomodoro(task.id(), ts())
+            .expect_err("nothing to advance");
+        assert!(matches!(error, Error::NoRunningSession));
     }
 
     #[test]

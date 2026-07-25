@@ -15,7 +15,7 @@ use crate::domain::ids::TaskId;
 use crate::domain::repository::{
     BankRepository, SessionRepository, TaskRepository, Transactional,
 };
-use crate::domain::session::PomodoroSession;
+use crate::domain::session::{PomodoroSession, TimerPhase};
 use crate::domain::task::{Task, TaskStatus};
 
 /// The columns shown on the board, in order. `Cancelled` is intentionally omitted.
@@ -33,7 +33,7 @@ enum Action {
     Start(TaskId),
     Pause(TaskId),
     Cancel(TaskId),
-    CompletePomo(TaskId),
+    Advance(TaskId),
     CompleteTask(TaskId),
     Open(TaskId),
     SaveDescription(TaskId),
@@ -107,7 +107,7 @@ where
         };
         let active_id = self.active_task.as_ref().map(Task::id);
         self.active_session = match active_id {
-            Some(id) => match self.service.active_focus_session(id) {
+            Some(id) => match self.service.running_session(id) {
                 Ok(session) => session,
                 Err(error) => {
                     self.status = Some(error.to_string());
@@ -125,7 +125,7 @@ where
             _ => None,
         };
         if let Some(task_id) = expired {
-            if let Err(error) = self.service.complete_active_pomo(task_id, now) {
+            if let Err(error) = self.service.advance_pomodoro(task_id, now) {
                 self.status = Some(error.to_string());
             }
             self.refresh();
@@ -167,7 +167,7 @@ where
             Action::Start(id) => self.service.start_task(id, now).map(|_| ()),
             Action::Pause(id) => self.service.pause_task(id, now).map(|_| ()),
             Action::Cancel(id) => self.service.cancel_task(id, now).map(|_| ()),
-            Action::CompletePomo(id) => self.service.complete_active_pomo(id, now),
+            Action::Advance(id) => self.service.advance_pomodoro(id, now),
             Action::CompleteTask(id) => self.service.complete_task(id, now).map(|_| ()),
             Action::SaveDescription(id) => self
                 .service
@@ -280,9 +280,13 @@ where
                 if task.status() == TaskStatus::InProgress
                     && let Some(session) = self.active_session.as_ref()
                 {
-                    ui.label(format!("⏱ {}", format_mmss(remaining_seconds(session, now))));
-                    if ui.button("Complete pomo").clicked() {
-                        action = Some(Action::CompletePomo(selected_id));
+                    ui.label(format!(
+                        "{} {}",
+                        phase_label(session.phase()),
+                        format_mmss(remaining_seconds(session, now))
+                    ));
+                    if ui.button(advance_label(session.phase())).clicked() {
+                        action = Some(Action::Advance(selected_id));
                     }
                 }
 
@@ -383,9 +387,13 @@ fn card_ui(
             }
             TaskStatus::InProgress => {
                 if let Some(session) = active_session {
-                    ui.label(format!("⏱ {}", format_mmss(remaining_seconds(session, now))));
-                    if ui.button("Complete pomo").clicked() {
-                        action = Some(Action::CompletePomo(task.id()));
+                    ui.label(format!(
+                        "{} {}",
+                        phase_label(session.phase()),
+                        format_mmss(remaining_seconds(session, now))
+                    ));
+                    if ui.button(advance_label(session.phase())).clicked() {
+                        action = Some(Action::Advance(task.id()));
                     }
                 }
                 ui.horizontal(|ui| {
@@ -443,6 +451,24 @@ fn resolve_drop(target: TaskStatus, dropped: TaskId, tasks: &[Task]) -> Option<A
         TaskStatus::Paused => Some(Action::Pause(dropped)),
         TaskStatus::Done => Some(Action::CompleteTask(dropped)),
         TaskStatus::Todo | TaskStatus::Cancelled => None,
+    }
+}
+
+/// Human-readable name of a timer phase.
+fn phase_label(phase: TimerPhase) -> &'static str {
+    match phase {
+        TimerPhase::Focus => "Focus",
+        TimerPhase::ShortBreak => "Short break",
+        TimerPhase::LongBreak => "Long break",
+    }
+}
+
+/// Label for the button that ends the current phase early.
+fn advance_label(phase: TimerPhase) -> &'static str {
+    if phase.is_effort() {
+        "Complete pomo"
+    } else {
+        "Skip break"
     }
 }
 

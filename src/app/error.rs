@@ -12,9 +12,9 @@ pub enum Error {
     /// The operation requires an active (in-progress or paused) task.
     #[error("task is not active")]
     TaskNotActive,
-    /// The task has no running focus session to complete.
-    #[error("no running focus session for the task")]
-    NoRunningPomo,
+    /// The task has no running session to advance.
+    #[error("no running session for the task")]
+    NoRunningSession,
     /// The earned pomo count did not fit the ledger's amount type.
     #[error("reward amount is too large")]
     RewardOverflow,

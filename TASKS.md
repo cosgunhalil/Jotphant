@@ -44,7 +44,7 @@ click-to-open card detail, task descriptions.
 ## M1 — Full task & timer domain
 
 - [x] 1.1 `paused` status + all transitions; single-active-task auto-pause on switch (test-first)
-- [ ] 1.2 Pomodoro cycle engine: Focus→ShortBreak→LongBreak, `long_break_after`,
+- [x] 1.2 Pomodoro cycle engine: Focus→ShortBreak→LongBreak, `long_break_after`,
       auto-start rules, skip-break, abandon-pomo (test-first)
 - [ ] 1.3 Cancellation flow: discard unbanked, keep sessions as history (test-first)
 - [ ] 1.4 Timer persistence & restore across restart from timestamps (test-first + wiring)

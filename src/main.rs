@@ -8,12 +8,13 @@ use std::error::Error;
 use std::path::Path;
 
 use jotphant::app::TaskService;
+use jotphant::domain::PomodoroConfig;
 use jotphant::storage::SqliteStore;
 use jotphant::ui::JotphantApp;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let store = SqliteStore::open(Path::new("jotphant.db"))?;
-    let service = TaskService::new(store);
+    let service = TaskService::new(store, PomodoroConfig::default());
 
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
