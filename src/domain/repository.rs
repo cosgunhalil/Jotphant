@@ -99,6 +99,19 @@ pub trait SessionRepository {
     ) -> Result<Vec<PomodoroSession>, RepositoryError>;
 }
 
+/// Runs a group of writes atomically.
+pub trait Transactional {
+    /// Executes `operation` inside a transaction, committing on `Ok` and rolling back on
+    /// `Err` (or if `operation` panics).
+    ///
+    /// # Errors
+    /// Returns whatever error `operation` produces, or a backend error if the
+    /// transaction cannot be started or committed.
+    fn transaction<T, F>(&self, operation: F) -> Result<T, RepositoryError>
+    where
+        F: FnOnce() -> Result<T, RepositoryError>;
+}
+
 /// Persistence operations for the bank ledger.
 pub trait BankRepository {
     /// Appends a ledger entry and returns it with its assigned id.

@@ -8,7 +8,7 @@ use rusqlite::{Connection, Row, params};
 use crate::domain::bank::{BankTransaction, BankTransactionType};
 use crate::domain::ids::{BankTransactionId, PomodoroSessionId, TaskId};
 use crate::domain::repository::{
-    BankRepository, RepositoryError, SessionRepository, TaskRepository,
+    BankRepository, RepositoryError, SessionRepository, TaskRepository, Transactional,
 };
 use crate::domain::session::{PomodoroSession, SessionStatus, TimerPhase};
 use crate::domain::task::{Task, TaskStatus};
@@ -352,6 +352,22 @@ impl SessionRepository for SqliteStore {
     }
 }
 
+impl Transactional for SqliteStore {
+    fn transaction<T, F>(&self, operation: F) -> Result<T, RepositoryError>
+    where
+        F: FnOnce() -> Result<T, RepositoryError>,
+    {
+        // `unchecked_transaction` issues BEGIN on the shared `&self` connection; the
+        // repository methods called by `operation` run against that same connection and
+        // are therefore part of this transaction. Returning early (or dropping `tx`
+        // without committing) rolls everything back.
+        let tx = self.conn.unchecked_transaction()?;
+        let value = operation()?;
+        tx.commit()?;
+        Ok(value)
+    }
+}
+
 impl BankRepository for SqliteStore {
     fn append_transaction(
         &self,
@@ -521,5 +537,23 @@ mod tests {
         let ledger = store.list_transactions().expect("list ledger");
         assert_eq!(ledger.len(), 2);
         assert_eq!(bank::balance(&ledger), 8);
+    }
+
+    #[test]
+    fn transaction_rolls_back_on_error() {
+        let store = store();
+        let mut task = store.create_task("stay todo", 1, ts()).expect("create");
+        task.apply_transition(TaskStatus::InProgress, ts())
+            .expect("start");
+
+        let result: Result<(), RepositoryError> = store.transaction(|| {
+            store.update_task(&task)?; // would persist InProgress...
+            Err(RepositoryError::NotFound) // ...but the transaction fails.
+        });
+        assert!(matches!(result, Err(RepositoryError::NotFound)));
+
+        // The update must have been rolled back.
+        let fetched = store.get_task(task.id()).expect("get").expect("exists");
+        assert_eq!(fetched.status(), TaskStatus::Todo);
     }
 }
