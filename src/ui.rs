@@ -48,6 +48,7 @@ pub struct JotphantApp<S> {
     tasks: Vec<Task>,
     progress: HashMap<TaskId, u32>,
     balance: i64,
+    leisure_per_pomo: u32,
     active_task: Option<Task>,
     active_session: Option<PomodoroSession>,
     status: Option<String>,
@@ -68,6 +69,7 @@ where
             tasks: Vec::new(),
             progress: HashMap::new(),
             balance: 0,
+            leisure_per_pomo: 0,
             active_task: None,
             active_session: None,
             status: None,
@@ -102,6 +104,7 @@ where
             Ok(balance) => self.balance = balance,
             Err(error) => self.status = Some(error.to_string()),
         }
+        self.leisure_per_pomo = self.service.leisure_minutes_per_pomo();
         self.active_task = match self.service.active_task() {
             Ok(task) => task,
             Err(error) => {
@@ -196,7 +199,8 @@ where
             ui.horizontal(|ui| {
                 ui.heading("Jotphant");
                 ui.separator();
-                ui.label(format!("Bank: {} pomos", self.balance));
+                let minutes = self.balance.max(0) * i64::from(self.leisure_per_pomo);
+                ui.label(format!("Bank: {} pomos (≈ {minutes} min)", self.balance));
             });
             if let Some(message) = &self.status {
                 ui.colored_label(egui::Color32::RED, message);

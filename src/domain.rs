@@ -5,6 +5,7 @@
 //! timestamps in.
 
 pub mod bank;
+pub mod config;
 pub mod ids;
 pub mod pomodoro;
 pub mod repository;
@@ -13,6 +14,7 @@ pub mod session;
 pub mod task;
 
 pub use bank::{BankTransaction, BankTransactionType};
+pub use config::AppConfig;
 pub use ids::{BankTransactionId, PomodoroSessionId, TaskId};
 pub use pomodoro::PomodoroConfig;
 pub use repository::{

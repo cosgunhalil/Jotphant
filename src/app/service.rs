@@ -4,8 +4,8 @@ use chrono::{DateTime, Utc};
 
 use crate::app::error::Error;
 use crate::domain::bank::{self, BankTransactionType};
+use crate::domain::config::AppConfig;
 use crate::domain::ids::TaskId;
-use crate::domain::pomodoro::PomodoroConfig;
 use crate::domain::repository::{
     BankRepository, SessionRepository, TaskRepository, Transactional,
 };
@@ -19,16 +19,22 @@ use crate::domain::task::{Task, TaskStatus};
 /// concrete one, while tests can inject an in-memory store or a fake.
 pub struct TaskService<S> {
     store: S,
-    config: PomodoroConfig,
+    config: AppConfig,
 }
 
 impl<S> TaskService<S>
 where
     S: TaskRepository + SessionRepository + BankRepository + Transactional,
 {
-    /// Creates a service over `store` with the given Pomodoro configuration.
-    pub fn new(store: S, config: PomodoroConfig) -> Self {
+    /// Creates a service over `store` with the given application configuration.
+    pub fn new(store: S, config: AppConfig) -> Self {
         Self { store, config }
+    }
+
+    /// The configured leisure minutes earned per banked pomo.
+    #[must_use]
+    pub fn leisure_minutes_per_pomo(&self) -> u32 {
+        self.config.leisure_minutes_per_pomo()
     }
 
     /// Creates a new `Todo` task.
@@ -79,7 +85,7 @@ where
             self.store.create_session(
                 task_id,
                 TimerPhase::Focus,
-                self.config.duration_seconds(TimerPhase::Focus),
+                self.config.pomodoro().duration_seconds(TimerPhase::Focus),
                 now,
             )?;
             Ok(())
@@ -109,9 +115,10 @@ where
         let completed_session = sessions[index].clone();
 
         let completed_focus = reward::completed_focus_pomos(&sessions);
-        let next_phase = self.config.next_phase(completed_phase, completed_focus);
-        let auto_start = self.config.should_auto_start(next_phase);
-        let duration = self.config.duration_seconds(next_phase);
+        let pomodoro = self.config.pomodoro();
+        let next_phase = pomodoro.next_phase(completed_phase, completed_focus);
+        let auto_start = pomodoro.should_auto_start(next_phase);
+        let duration = pomodoro.duration_seconds(next_phase);
 
         self.store.transaction(|| {
             self.store.update_session(&completed_session)?;
@@ -325,7 +332,7 @@ mod tests {
     fn service() -> TaskService<SqliteStore> {
         TaskService::new(
             SqliteStore::open_in_memory().expect("in-memory store"),
-            PomodoroConfig::default(),
+            AppConfig::default(),
         )
     }
 

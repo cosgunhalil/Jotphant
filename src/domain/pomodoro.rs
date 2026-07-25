@@ -39,6 +39,12 @@ impl PomodoroConfig {
         }
     }
 
+    /// How many completed focus pomos precede each long break.
+    #[must_use]
+    pub fn long_break_after(&self) -> u32 {
+        self.long_break_after
+    }
+
     /// The configured duration, in seconds, of a given phase.
     #[must_use]
     pub fn duration_seconds(&self, phase: TimerPhase) -> u32 {

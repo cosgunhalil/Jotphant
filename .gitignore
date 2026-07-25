@@ -17,6 +17,9 @@ debug/
 *.db-wal
 *.db-shm
 
+# Runtime config
+/config.toml
+
 # IDE / editor
 /.idea/
 
