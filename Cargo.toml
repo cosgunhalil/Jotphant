@@ -1,0 +1,12 @@
+[package]
+name = "Jotphant"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "deny"
