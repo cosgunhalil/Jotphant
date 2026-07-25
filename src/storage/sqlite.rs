@@ -59,7 +59,7 @@ impl SqliteStore {
 // --- Column lists (kept in one place so SELECTs and row mappers stay in sync) ---
 
 const TASK_COLUMNS: &str =
-    "id, title, status, estimated_pomos, linked_from_task_id, created_at, completed_at";
+    "id, title, description, status, estimated_pomos, linked_from_task_id, created_at, completed_at";
 const SESSION_COLUMNS: &str =
     "id, task_id, phase, status, configured_duration_seconds, started_at, finished_at";
 const BANK_COLUMNS: &str = "id, task_id, amount_pomos, transaction_type, created_at";
@@ -174,6 +174,7 @@ fn row_to_task(row: &Row) -> Result<Task, RepositoryError> {
     Ok(Task::from_fields(
         TaskId::new(row.get("id")?),
         row.get("title")?,
+        row.get("description")?,
         task_status_from_str(&row.get::<_, String>("status")?)?,
         to_u32(row.get("estimated_pomos")?)?,
         row.get::<_, Option<i64>>("linked_from_task_id")?
@@ -264,12 +265,13 @@ impl TaskRepository for SqliteStore {
     fn update_task(&self, task: &Task) -> Result<(), RepositoryError> {
         let affected = self.conn.execute(
             "UPDATE tasks
-             SET title = ?2, status = ?3, estimated_pomos = ?4,
-                 linked_from_task_id = ?5, created_at = ?6, completed_at = ?7
+             SET title = ?2, description = ?3, status = ?4, estimated_pomos = ?5,
+                 linked_from_task_id = ?6, created_at = ?7, completed_at = ?8
              WHERE id = ?1",
             params![
                 task.id().value(),
                 task.title(),
+                task.description(),
                 task_status_to_str(task.status()),
                 i64::from(task.estimated_pomos()),
                 task.linked_from().map(TaskId::value),
@@ -437,6 +439,19 @@ mod tests {
         assert_eq!(fetched.title(), "write storage");
         assert_eq!(fetched.estimated_pomos(), 4);
         assert_eq!(fetched.created_at(), ts());
+    }
+
+    #[test]
+    fn description_defaults_empty_and_round_trips() {
+        let store = store();
+        let mut task = store.create_task("with notes", 1, ts()).expect("create");
+        assert_eq!(task.description(), "");
+
+        task.set_description("some detail".to_owned());
+        store.update_task(&task).expect("update");
+
+        let fetched = store.get_task(task.id()).expect("get").expect("exists");
+        assert_eq!(fetched.description(), "some detail");
     }
 
     #[test]

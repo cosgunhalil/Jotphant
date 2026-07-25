@@ -143,6 +143,21 @@ where
         Ok(earned)
     }
 
+    /// Replaces a task's description, returning the updated task.
+    ///
+    /// # Errors
+    /// Returns [`Error::TaskNotFound`] if the task does not exist, or a storage error.
+    pub fn set_task_description(
+        &self,
+        task_id: TaskId,
+        description: String,
+    ) -> Result<Task, Error> {
+        let mut task = self.store.get_task(task_id)?.ok_or(Error::TaskNotFound)?;
+        task.set_description(description);
+        self.store.update_task(&task)?;
+        Ok(task)
+    }
+
     /// Lists all tasks.
     ///
     /// # Errors
@@ -296,6 +311,26 @@ mod tests {
                 .expect("query")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn set_task_description_persists() {
+        let service = service();
+        let task = service.create_task("describe me", 1, ts()).expect("create");
+        assert_eq!(task.description(), "");
+
+        let updated = service
+            .set_task_description(task.id(), "the full story".to_owned())
+            .expect("set description");
+        assert_eq!(updated.description(), "the full story");
+
+        let reloaded = service
+            .list_tasks()
+            .expect("list")
+            .into_iter()
+            .find(|candidate| candidate.id() == task.id())
+            .expect("exists");
+        assert_eq!(reloaded.description(), "the full story");
     }
 
     #[test]

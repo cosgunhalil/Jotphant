@@ -94,6 +94,7 @@ impl InvalidTransition {
 pub struct Task {
     id: TaskId,
     title: String,
+    description: String,
     status: TaskStatus,
     estimated_pomos: u32,
     linked_from: Option<TaskId>,
@@ -113,6 +114,7 @@ impl Task {
         Self {
             id,
             title,
+            description: String::new(),
             status: TaskStatus::Todo,
             estimated_pomos,
             linked_from: None,
@@ -125,10 +127,13 @@ impl Task {
     ///
     /// Intended for the storage layer when hydrating a row; it trusts the given values
     /// rather than enforcing the `Todo` starting state that [`Task::new`] imposes.
+    // Every persisted column is required to rebuild the row faithfully.
+    #[expect(clippy::too_many_arguments, reason = "hydrates a full persisted row")]
     #[must_use]
     pub fn from_fields(
         id: TaskId,
         title: String,
+        description: String,
         status: TaskStatus,
         estimated_pomos: u32,
         linked_from: Option<TaskId>,
@@ -138,6 +143,7 @@ impl Task {
         Self {
             id,
             title,
+            description,
             status,
             estimated_pomos,
             linked_from,
@@ -176,6 +182,17 @@ impl Task {
     #[must_use]
     pub fn title(&self) -> &str {
         &self.title
+    }
+
+    /// The task's free-form description (may be empty).
+    #[must_use]
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    /// Replaces the task's description.
+    pub fn set_description(&mut self, description: String) {
+        self.description = description;
     }
 
     /// The task's current lifecycle status.

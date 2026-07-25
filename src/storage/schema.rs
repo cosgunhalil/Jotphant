@@ -7,7 +7,7 @@ use rusqlite::Connection;
 use crate::domain::repository::RepositoryError;
 
 /// The schema version this build expects.
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 /// Version 1: the core tasks / sessions / bank tables.
 const CREATE_V1: &str = r"
@@ -40,7 +40,10 @@ CREATE TABLE bank_transactions (
 );
 ";
 
-/// Applies any pending migrations to `conn`.
+/// Version 2: add a free-form task description.
+const ALTER_V2: &str = "ALTER TABLE tasks ADD COLUMN description TEXT NOT NULL DEFAULT '';";
+
+/// Applies any pending migrations to `conn`, forward only.
 ///
 /// # Errors
 /// Returns [`RepositoryError`] if reading the version or applying a migration fails.
@@ -48,6 +51,11 @@ pub fn migrate(conn: &Connection) -> Result<(), RepositoryError> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if version < 1 {
         conn.execute_batch(CREATE_V1)?;
+    }
+    if version < 2 {
+        conn.execute_batch(ALTER_V2)?;
+    }
+    if version < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     }
     Ok(())

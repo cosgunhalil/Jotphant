@@ -30,6 +30,17 @@ See [`SCOPE.md`](SCOPE.md) for the product scope and
 - [x] 0.5 Minimal egui UI wired end-to-end: create/list task, Start, live countdown,
       Complete, bank balance
 
+## M0.5 — Trello-style board (UI redesign)
+
+4 columns (`Todo · In Progress · Paused · Done`; Cancelled hidden), action buttons first,
+click-to-open card detail, task descriptions.
+
+- [x] B1 Add `description` to `Task` (domain + storage migration v2), test-first
+- [ ] B2 App `pause_task` / `cancel_task` services (board needs them), test-first
+- [ ] B3 Board layout: 4 status columns of cards with action buttons (replaces flat UI)
+- [ ] B4 Card detail modal (view/edit description, timer, actions)
+- [ ] B5 *(deferred)* Drag-and-drop between columns
+
 ## M1 — Full task & timer domain
 
 - [ ] 1.1 `paused` status + all transitions; single-active-task auto-pause on switch (test-first)
