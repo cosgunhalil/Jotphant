@@ -35,6 +35,9 @@ enum Action {
     Cancel(TaskId),
     CompletePomo(TaskId),
     CompleteTask(TaskId),
+    Open(TaskId),
+    SaveDescription(TaskId),
+    CloseDetail,
 }
 
 /// The root eframe application.
@@ -48,6 +51,8 @@ pub struct JotphantApp<S> {
     active_task: Option<Task>,
     active_session: Option<PomodoroSession>,
     status: Option<String>,
+    selected: Option<TaskId>,
+    detail_description: String,
 }
 
 impl<S> JotphantApp<S>
@@ -66,6 +71,8 @@ where
             active_task: None,
             active_session: None,
             status: None,
+            selected: None,
+            detail_description: String::new(),
         };
         app.refresh();
         app
@@ -128,6 +135,20 @@ where
     /// Applies a captured action and refreshes.
     fn handle(&mut self, action: Action, now: DateTime<Utc>) {
         let result = match action {
+            Action::Open(id) => {
+                self.detail_description = self
+                    .tasks
+                    .iter()
+                    .find(|task| task.id() == id)
+                    .map(|task| task.description().to_owned())
+                    .unwrap_or_default();
+                self.selected = Some(id);
+                return;
+            }
+            Action::CloseDetail => {
+                self.selected = None;
+                return;
+            }
             Action::Create => {
                 let title = self.new_title.trim().to_owned();
                 if title.is_empty() {
@@ -148,6 +169,10 @@ where
             Action::Cancel(id) => self.service.cancel_task(id, now).map(|_| ()),
             Action::CompletePomo(id) => self.service.complete_active_pomo(id, now),
             Action::CompleteTask(id) => self.service.complete_task(id, now).map(|_| ()),
+            Action::SaveDescription(id) => self
+                .service
+                .set_task_description(id, self.detail_description.clone())
+                .map(|_| ()),
         };
         self.status = result.err().map(|error| error.to_string());
         self.refresh();
@@ -216,6 +241,83 @@ where
             });
         });
 
+        if let Some(selected_id) = self.selected {
+            let ctx = ui.ctx().clone();
+            let response = egui::Modal::new(egui::Id::new("task_detail")).show(&ctx, |ui| {
+                ui.set_width(420.0);
+                let Some(task) = self.tasks.iter().find(|task| task.id() == selected_id) else {
+                    action = Some(Action::CloseDetail);
+                    return;
+                };
+
+                ui.heading(task.title());
+                ui.label(format!("Status: {:?}", task.status()));
+                let completed = self.progress.get(&selected_id).copied().unwrap_or(0);
+                ui.label(format!("Progress: {}/{} pomos", completed, task.estimated_pomos()));
+
+                if task.status() == TaskStatus::InProgress
+                    && let Some(session) = self.active_session.as_ref()
+                {
+                    ui.label(format!("⏱ {}", format_mmss(remaining_seconds(session, now))));
+                    if ui.button("Complete pomo").clicked() {
+                        action = Some(Action::CompletePomo(selected_id));
+                    }
+                }
+
+                ui.separator();
+                ui.label("Description");
+                ui.add(
+                    egui::TextEdit::multiline(&mut self.detail_description)
+                        .desired_rows(4)
+                        .desired_width(f32::INFINITY),
+                );
+                if ui.button("Save description").clicked() {
+                    action = Some(Action::SaveDescription(selected_id));
+                }
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    match task.status() {
+                        TaskStatus::Todo => {
+                            if ui.button("Start").clicked() {
+                                action = Some(Action::Start(selected_id));
+                            }
+                        }
+                        TaskStatus::InProgress => {
+                            if ui.button("Pause").clicked() {
+                                action = Some(Action::Pause(selected_id));
+                            }
+                            if ui.button("Complete").clicked() {
+                                action = Some(Action::CompleteTask(selected_id));
+                            }
+                            if ui.button("Cancel").clicked() {
+                                action = Some(Action::Cancel(selected_id));
+                            }
+                        }
+                        TaskStatus::Paused => {
+                            if ui.button("Resume").clicked() {
+                                action = Some(Action::Start(selected_id));
+                            }
+                            if ui.button("Complete").clicked() {
+                                action = Some(Action::CompleteTask(selected_id));
+                            }
+                            if ui.button("Cancel").clicked() {
+                                action = Some(Action::Cancel(selected_id));
+                            }
+                        }
+                        TaskStatus::Done | TaskStatus::Cancelled => {}
+                    }
+                    if ui.button("Close").clicked() {
+                        action = Some(Action::CloseDetail);
+                    }
+                });
+            });
+
+            if response.should_close() {
+                action = Some(Action::CloseDetail);
+            }
+        }
+
         if let Some(action) = action {
             self.handle(action, now);
         }
@@ -238,7 +340,11 @@ fn card_ui(
     let mut action = None;
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.strong(task.title());
+        let title = egui::Label::new(egui::RichText::new(task.title()).strong())
+            .sense(egui::Sense::click());
+        if ui.add(title).on_hover_text("Open details").clicked() {
+            action = Some(Action::Open(task.id()));
+        }
         ui.label(format!("{completed}/{} pomos", task.estimated_pomos()));
 
         match task.status() {
