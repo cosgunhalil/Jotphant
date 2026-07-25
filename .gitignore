@@ -12,6 +12,11 @@ debug/
 # MSVC debugging info
 *.pdb
 
+# Runtime SQLite database
+*.db
+*.db-wal
+*.db-shm
+
 # IDE / editor
 /.idea/
 

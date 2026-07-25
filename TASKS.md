@@ -27,7 +27,7 @@ See [`SCOPE.md`](SCOPE.md) for the product scope and
       *adds `rusqlite` bundled (`chrono` landed in 0.2)*
 - [x] 0.4 App services (test-first): `create_task`, `start_task` (single active), record
       completed focus session, atomic `complete_task` → bank credit
-- [ ] 0.5 Minimal egui UI wired end-to-end: create/list task, Start, live countdown,
+- [x] 0.5 Minimal egui UI wired end-to-end: create/list task, Start, live countdown,
       Complete, bank balance
 
 ## M1 — Full task & timer domain

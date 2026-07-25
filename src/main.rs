@@ -1,16 +1,25 @@
 //! Binary entry point and composition root.
 //!
-//! Constructs the application shell and hands it to eframe. As the app grows, this is
-//! the single place that wires configuration, storage, and services together (see
+//! Opens the SQLite store, wires it into the task service, and hands the service to the
+//! egui app. This is the single place that constructs concrete infrastructure (see
 //! `CODING_STANDARDS.md` §5).
 
+use std::error::Error;
+use std::path::Path;
+
+use jotphant::app::TaskService;
+use jotphant::storage::SqliteStore;
 use jotphant::ui::JotphantApp;
 
-fn main() -> eframe::Result<()> {
+fn main() -> Result<(), Box<dyn Error>> {
+    let store = SqliteStore::open(Path::new("jotphant.db"))?;
+    let service = TaskService::new(store);
+
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
         "Jotphant",
         native_options,
-        Box::new(|_cc| Ok(Box::new(JotphantApp::new()))),
-    )
+        Box::new(|_cc| Ok(Box::new(JotphantApp::new(service)))),
+    )?;
+    Ok(())
 }

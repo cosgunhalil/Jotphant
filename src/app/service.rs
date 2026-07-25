@@ -152,6 +152,15 @@ where
         Ok(tasks)
     }
 
+    /// Returns the single active (in-progress) task, if any.
+    ///
+    /// # Errors
+    /// Returns a storage error if the query fails.
+    pub fn active_task(&self) -> Result<Option<Task>, Error> {
+        let task = self.store.find_active_task()?;
+        Ok(task)
+    }
+
     /// Returns the current pomo bank balance.
     ///
     /// # Errors
