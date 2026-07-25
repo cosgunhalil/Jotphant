@@ -39,7 +39,7 @@ click-to-open card detail, task descriptions.
 - [x] B2 App `pause_task` / `cancel_task` services (board needs them), test-first
 - [x] B3 Board layout: 4 status columns of cards with action buttons (replaces flat UI)
 - [x] B4 Card detail modal (view/edit description, timer, actions)
-- [ ] B5 *(deferred)* Drag-and-drop between columns
+- [x] B5 Drag-and-drop between columns
 
 ## M1 — Full task & timer domain
 

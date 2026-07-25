@@ -210,16 +210,38 @@ where
                         .id_salt(*title)
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            for task in self.tasks.iter().filter(|t| t.status() == *status) {
-                                let completed = self.progress.get(&task.id()).copied().unwrap_or(0);
-                                let session = if Some(task.id()) == self.active_task.as_ref().map(Task::id) {
-                                    self.active_session.as_ref()
-                                } else {
-                                    None
-                                };
-                                if let Some(card_action) = card_ui(ui, task, completed, session, now) {
-                                    action = Some(card_action);
-                                }
+                            let (_, dropped) = ui.dnd_drop_zone::<TaskId, ()>(
+                                egui::Frame::default(),
+                                |ui| {
+                                    ui.set_min_height(60.0);
+                                    let mut any = false;
+                                    for task in self.tasks.iter().filter(|t| t.status() == *status) {
+                                        any = true;
+                                        let completed =
+                                            self.progress.get(&task.id()).copied().unwrap_or(0);
+                                        let session = if Some(task.id())
+                                            == self.active_task.as_ref().map(Task::id)
+                                        {
+                                            self.active_session.as_ref()
+                                        } else {
+                                            None
+                                        };
+                                        if let Some(card_action) =
+                                            card_ui(ui, task, completed, session, now)
+                                        {
+                                            action = Some(card_action);
+                                        }
+                                    }
+                                    if !any {
+                                        ui.weak("Drop here");
+                                    }
+                                },
+                            );
+                            if let Some(dropped_id) = dropped
+                                && let Some(dropped_action) =
+                                    resolve_drop(*status, *dropped_id, &self.tasks)
+                            {
+                                action = Some(dropped_action);
                             }
 
                             if *status == TaskStatus::Todo {
@@ -338,13 +360,19 @@ fn card_ui(
     now: DateTime<Utc>,
 ) -> Option<Action> {
     let mut action = None;
-    egui::Frame::group(ui.style()).show(ui, |ui| {
+    let inner = egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        let title = egui::Label::new(egui::RichText::new(task.title()).strong())
-            .sense(egui::Sense::click());
-        if ui.add(title).on_hover_text("Open details").clicked() {
-            action = Some(Action::Open(task.id()));
-        }
+        ui.horizontal(|ui| {
+            // Only this handle is draggable, so clicking the rest of the card can open it.
+            let handle_id = egui::Id::new(("card_drag", task.id().value()));
+            ui.dnd_drag_source(handle_id, task.id(), |ui| {
+                ui.label(":::");
+            })
+            .response
+            .on_hover_cursor(egui::CursorIcon::Grab)
+            .on_hover_text("Drag to move");
+            ui.strong(task.title());
+        });
         ui.label(format!("{completed}/{} pomos", task.estimated_pomos()));
 
         match task.status() {
@@ -386,12 +414,36 @@ fn card_ui(
                 });
             }
             TaskStatus::Done => {
-                ui.label("✓ done");
+                ui.label("done");
             }
             TaskStatus::Cancelled => {}
         }
     });
+
+    // Clicking anywhere on the card body (not a button or the handle) opens its detail.
+    let card = inner
+        .response
+        .interact(egui::Sense::click())
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    if card.clicked() && action.is_none() {
+        action = Some(Action::Open(task.id()));
+    }
     action
+}
+
+/// Maps dropping task `dropped` onto the `target` column to the action that performs the
+/// matching transition, or `None` if the move is not a valid transition.
+fn resolve_drop(target: TaskStatus, dropped: TaskId, tasks: &[Task]) -> Option<Action> {
+    let current = tasks.iter().find(|task| task.id() == dropped)?.status();
+    if !current.can_transition_to(target) {
+        return None;
+    }
+    match target {
+        TaskStatus::InProgress => Some(Action::Start(dropped)),
+        TaskStatus::Paused => Some(Action::Pause(dropped)),
+        TaskStatus::Done => Some(Action::CompleteTask(dropped)),
+        TaskStatus::Todo | TaskStatus::Cancelled => None,
+    }
 }
 
 /// Seconds left in a focus session (may be negative once elapsed).
@@ -410,11 +462,66 @@ fn format_mmss(seconds: i64) -> String {
 mod tests {
     use super::*;
 
+    fn task_with(id: i64, status: TaskStatus) -> Task {
+        let created_at = DateTime::from_timestamp(0, 0).expect("valid timestamp");
+        Task::from_fields(
+            TaskId::new(id),
+            "t".to_owned(),
+            String::new(),
+            status,
+            1,
+            None,
+            created_at,
+            None,
+        )
+    }
+
     #[test]
     fn format_mmss_pads_and_clamps() {
         assert_eq!(format_mmss(1500), "25:00");
         assert_eq!(format_mmss(65), "01:05");
         assert_eq!(format_mmss(0), "00:00");
         assert_eq!(format_mmss(-5), "00:00");
+    }
+
+    #[test]
+    fn resolve_drop_maps_valid_moves() {
+        let tasks = [
+            task_with(1, TaskStatus::Todo),
+            task_with(2, TaskStatus::InProgress),
+            task_with(3, TaskStatus::Paused),
+        ];
+        assert!(matches!(
+            resolve_drop(TaskStatus::InProgress, TaskId::new(1), &tasks),
+            Some(Action::Start(_))
+        ));
+        assert!(matches!(
+            resolve_drop(TaskStatus::Paused, TaskId::new(2), &tasks),
+            Some(Action::Pause(_))
+        ));
+        assert!(matches!(
+            resolve_drop(TaskStatus::Done, TaskId::new(2), &tasks),
+            Some(Action::CompleteTask(_))
+        ));
+        assert!(matches!(
+            resolve_drop(TaskStatus::InProgress, TaskId::new(3), &tasks),
+            Some(Action::Start(_))
+        ));
+    }
+
+    #[test]
+    fn resolve_drop_rejects_invalid_moves() {
+        let tasks = [
+            task_with(1, TaskStatus::Todo),
+            task_with(2, TaskStatus::InProgress),
+        ];
+        // Todo cannot jump straight to Done.
+        assert!(resolve_drop(TaskStatus::Done, TaskId::new(1), &tasks).is_none());
+        // Nothing transitions back to Todo.
+        assert!(resolve_drop(TaskStatus::Todo, TaskId::new(2), &tasks).is_none());
+        // Dropping onto the same column is a no-op (no self-transition).
+        assert!(resolve_drop(TaskStatus::Todo, TaskId::new(1), &tasks).is_none());
+        // Unknown task id.
+        assert!(resolve_drop(TaskStatus::Done, TaskId::new(99), &tasks).is_none());
     }
 }
