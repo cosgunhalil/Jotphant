@@ -37,6 +37,17 @@ where
         self.config.leisure_minutes_per_pomo()
     }
 
+    /// The current application configuration.
+    #[must_use]
+    pub fn config(&self) -> AppConfig {
+        self.config
+    }
+
+    /// Replaces the configuration, applying it to subsequent operations.
+    pub fn set_config(&mut self, config: AppConfig) {
+        self.config = config;
+    }
+
     /// Creates a new `Todo` task.
     ///
     /// # Errors
@@ -249,6 +260,50 @@ where
         Ok(task)
     }
 
+    /// The phase that is awaiting a manual start, if the active task is in progress but
+    /// has no running session (because the previous phase completed with auto-start off).
+    ///
+    /// # Errors
+    /// Returns a storage error if a query fails.
+    pub fn pending_next_phase(&self, task_id: TaskId) -> Result<Option<TimerPhase>, Error> {
+        let Some(task) = self.store.get_task(task_id)? else {
+            return Ok(None);
+        };
+        if task.status() != TaskStatus::InProgress {
+            return Ok(None);
+        }
+        let sessions = self.store.list_sessions_for_task(task_id)?;
+        if sessions
+            .iter()
+            .any(|session| session.status() == SessionStatus::Running)
+        {
+            return Ok(None);
+        }
+        let completed_focus = reward::completed_focus_pomos(&sessions);
+        let next = sessions
+            .iter()
+            .max_by_key(|session| session.id().value())
+            .map_or(TimerPhase::Focus, |session| {
+                self.config.pomodoro().next_phase(session.phase(), completed_focus)
+            });
+        Ok(Some(next))
+    }
+
+    /// Starts the pending next phase for a task (used when auto-start is off).
+    ///
+    /// A no-op if nothing is pending (no active task, or a session already runs).
+    ///
+    /// # Errors
+    /// Returns a storage error if the query or insert fails.
+    pub fn start_next_phase(&self, task_id: TaskId, now: DateTime<Utc>) -> Result<(), Error> {
+        let Some(next) = self.pending_next_phase(task_id)? else {
+            return Ok(());
+        };
+        let duration = self.config.pomodoro().duration_seconds(next);
+        self.store.create_session(task_id, next, duration, now)?;
+        Ok(())
+    }
+
     /// Catches up a timer that elapsed while the app was closed.
     ///
     /// If the active task has a running session whose configured duration has already
@@ -323,6 +378,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::pomodoro::PomodoroConfig;
     use crate::storage::SqliteStore;
 
     fn ts() -> DateTime<Utc> {
@@ -330,10 +386,11 @@ mod tests {
     }
 
     fn service() -> TaskService<SqliteStore> {
-        TaskService::new(
-            SqliteStore::open_in_memory().expect("in-memory store"),
-            AppConfig::default(),
-        )
+        service_with(AppConfig::default())
+    }
+
+    fn service_with(config: AppConfig) -> TaskService<SqliteStore> {
+        TaskService::new(SqliteStore::open_in_memory().expect("in-memory store"), config)
     }
 
     #[test]
@@ -689,6 +746,42 @@ mod tests {
         let service = service();
         service.create_task("idle", 1, ts()).expect("create");
         service.reconcile_active_timer(ts()).expect("reconcile");
+    }
+
+    #[test]
+    fn manual_start_next_phase_when_auto_start_is_off() {
+        let config = AppConfig::new(
+            PomodoroConfig::new(25 * 60, 5 * 60, 15 * 60, 4, false, false),
+            5,
+        );
+        let service = service_with(config);
+        let task = service.create_task("manual", 4, ts()).expect("create");
+        service.start_task(task.id(), ts()).expect("start");
+
+        // Completing the focus does not auto-start a break.
+        service.advance_pomodoro(task.id(), ts()).expect("advance");
+        assert!(service.running_session(task.id()).expect("query").is_none());
+        assert_eq!(
+            service.pending_next_phase(task.id()).expect("pending"),
+            Some(TimerPhase::ShortBreak)
+        );
+
+        // Starting it manually opens the break.
+        service.start_next_phase(task.id(), ts()).expect("start next");
+        let running = service
+            .running_session(task.id())
+            .expect("query")
+            .expect("break started");
+        assert_eq!(running.phase(), TimerPhase::ShortBreak);
+    }
+
+    #[test]
+    fn set_config_updates_the_reward_rate() {
+        let mut service = service();
+        assert_eq!(service.leisure_minutes_per_pomo(), 5);
+
+        service.set_config(AppConfig::new(PomodoroConfig::default(), 10));
+        assert_eq!(service.leisure_minutes_per_pomo(), 10);
     }
 
     #[test]

@@ -11,12 +11,54 @@ use chrono::{DateTime, Utc};
 use eframe::egui;
 
 use crate::app::TaskService;
+use crate::domain::config::AppConfig;
 use crate::domain::ids::TaskId;
+use crate::domain::pomodoro::PomodoroConfig;
 use crate::domain::repository::{
     BankRepository, SessionRepository, TaskRepository, Transactional,
 };
 use crate::domain::session::{PomodoroSession, TimerPhase};
 use crate::domain::task::{Task, TaskStatus};
+
+/// Editable form state for the settings screen (durations in minutes).
+struct SettingsDraft {
+    focus_minutes: u32,
+    short_break_minutes: u32,
+    long_break_minutes: u32,
+    long_break_after: u32,
+    auto_start_break: bool,
+    auto_start_focus: bool,
+    leisure_minutes_per_pomo: u32,
+}
+
+impl SettingsDraft {
+    fn from_config(config: &AppConfig) -> Self {
+        let pomodoro = config.pomodoro();
+        Self {
+            focus_minutes: pomodoro.duration_seconds(TimerPhase::Focus) / 60,
+            short_break_minutes: pomodoro.duration_seconds(TimerPhase::ShortBreak) / 60,
+            long_break_minutes: pomodoro.duration_seconds(TimerPhase::LongBreak) / 60,
+            long_break_after: pomodoro.long_break_after(),
+            auto_start_break: pomodoro.should_auto_start(TimerPhase::ShortBreak),
+            auto_start_focus: pomodoro.should_auto_start(TimerPhase::Focus),
+            leisure_minutes_per_pomo: config.leisure_minutes_per_pomo(),
+        }
+    }
+
+    fn to_config(&self) -> AppConfig {
+        AppConfig::new(
+            PomodoroConfig::new(
+                self.focus_minutes.saturating_mul(60),
+                self.short_break_minutes.saturating_mul(60),
+                self.long_break_minutes.saturating_mul(60),
+                self.long_break_after,
+                self.auto_start_break,
+                self.auto_start_focus,
+            ),
+            self.leisure_minutes_per_pomo,
+        )
+    }
+}
 
 /// The columns shown on the board, in order. `Cancelled` is intentionally omitted.
 const COLUMNS: [(TaskStatus, &str); 4] = [
@@ -38,11 +80,20 @@ enum Action {
     Open(TaskId),
     SaveDescription(TaskId),
     CloseDetail,
+    StartNext(TaskId),
+    OpenSettings,
+    SaveSettings,
+    CloseSettings,
 }
+
+/// Persists the configuration; injected by the composition root so the UI need not know
+/// about storage.
+type SaveConfig = Box<dyn Fn(&AppConfig) -> Result<(), String>>;
 
 /// The root eframe application.
 pub struct JotphantApp<S> {
     service: TaskService<S>,
+    save_config: SaveConfig,
     new_title: String,
     new_estimate: u32,
     tasks: Vec<Task>,
@@ -51,19 +102,23 @@ pub struct JotphantApp<S> {
     leisure_per_pomo: u32,
     active_task: Option<Task>,
     active_session: Option<PomodoroSession>,
+    pending_phase: Option<TimerPhase>,
     status: Option<String>,
     selected: Option<TaskId>,
     detail_description: String,
+    settings: Option<SettingsDraft>,
 }
 
 impl<S> JotphantApp<S>
 where
     S: TaskRepository + SessionRepository + BankRepository + Transactional,
 {
-    /// Builds the app over an injected service and loads the initial state.
-    pub fn new(service: TaskService<S>) -> Self {
+    /// Builds the app over an injected service and config-save function, loading the
+    /// initial state.
+    pub fn new(service: TaskService<S>, save_config: SaveConfig) -> Self {
         let mut app = Self {
             service,
+            save_config,
             new_title: String::new(),
             new_estimate: 1,
             tasks: Vec::new(),
@@ -72,9 +127,11 @@ where
             leisure_per_pomo: 0,
             active_task: None,
             active_session: None,
+            pending_phase: None,
             status: None,
             selected: None,
             detail_description: String::new(),
+            settings: None,
         };
         // Catch up any timer that elapsed while the app was closed, then load state.
         if let Err(error) = app.service.reconcile_active_timer(Utc::now()) {
@@ -123,6 +180,13 @@ where
             },
             None => None,
         };
+        // A phase awaits a manual start only when the active task has no running session.
+        self.pending_phase = match active_id {
+            Some(id) if self.active_session.is_none() => {
+                self.service.pending_next_phase(id).ok().flatten()
+            }
+            _ => None,
+        };
     }
 
     /// Auto-completes the active focus pomo once its countdown reaches zero.
@@ -156,6 +220,25 @@ where
                 self.selected = None;
                 return;
             }
+            Action::OpenSettings => {
+                self.settings = Some(SettingsDraft::from_config(&self.service.config()));
+                return;
+            }
+            Action::CloseSettings => {
+                self.settings = None;
+                return;
+            }
+            Action::SaveSettings => {
+                if let Some(config) = self.settings.as_ref().map(SettingsDraft::to_config) {
+                    self.service.set_config(config);
+                    if let Err(error) = (self.save_config)(&config) {
+                        self.status = Some(error);
+                    }
+                }
+                self.settings = None;
+                self.refresh();
+                return;
+            }
             Action::Create => {
                 let title = self.new_title.trim().to_owned();
                 if title.is_empty() {
@@ -175,6 +258,7 @@ where
             Action::Pause(id) => self.service.pause_task(id, now).map(|_| ()),
             Action::Cancel(id) => self.service.cancel_task(id, now).map(|_| ()),
             Action::Advance(id) => self.service.advance_pomodoro(id, now),
+            Action::StartNext(id) => self.service.start_next_phase(id, now).map(|_| ()),
             Action::CompleteTask(id) => self.service.complete_task(id, now).map(|_| ()),
             Action::SaveDescription(id) => self
                 .service
@@ -201,6 +285,9 @@ where
                 ui.separator();
                 let minutes = self.balance.max(0) * i64::from(self.leisure_per_pomo);
                 ui.label(format!("Bank: {} pomos (≈ {minutes} min)", self.balance));
+                if ui.button("Settings").clicked() {
+                    action = Some(Action::OpenSettings);
+                }
             });
             if let Some(message) = &self.status {
                 ui.colored_label(egui::Color32::RED, message);
@@ -227,15 +314,20 @@ where
                                         any = true;
                                         let completed =
                                             self.progress.get(&task.id()).copied().unwrap_or(0);
-                                        let session = if Some(task.id())
-                                            == self.active_task.as_ref().map(Task::id)
-                                        {
+                                        let is_active = Some(task.id())
+                                            == self.active_task.as_ref().map(Task::id);
+                                        let session = if is_active {
                                             self.active_session.as_ref()
                                         } else {
                                             None
                                         };
+                                        let pending = if is_active && session.is_none() {
+                                            self.pending_phase
+                                        } else {
+                                            None
+                                        };
                                         if let Some(card_action) =
-                                            card_ui(ui, task, completed, session, now)
+                                            card_ui(ui, task, completed, session, pending, now)
                                         {
                                             action = Some(card_action);
                                         }
@@ -285,16 +377,20 @@ where
                 let completed = self.progress.get(&selected_id).copied().unwrap_or(0);
                 ui.label(format!("Progress: {}/{} pomos", completed, task.estimated_pomos()));
 
-                if task.status() == TaskStatus::InProgress
-                    && let Some(session) = self.active_session.as_ref()
-                {
-                    ui.label(format!(
-                        "{} {}",
-                        phase_label(session.phase()),
-                        format_mmss(session.remaining_seconds(now))
-                    ));
-                    if ui.button(advance_label(session.phase())).clicked() {
-                        action = Some(Action::Advance(selected_id));
+                if task.status() == TaskStatus::InProgress {
+                    if let Some(session) = self.active_session.as_ref() {
+                        ui.label(format!(
+                            "{} {}",
+                            phase_label(session.phase()),
+                            format_mmss(session.remaining_seconds(now))
+                        ));
+                        if ui.button(advance_label(session.phase())).clicked() {
+                            action = Some(Action::Advance(selected_id));
+                        }
+                    } else if let Some(phase) = self.pending_phase
+                        && ui.button(format!("Start {}", phase_label(phase))).clicked()
+                    {
+                        action = Some(Action::StartNext(selected_id));
                     }
                 }
 
@@ -352,6 +448,49 @@ where
             }
         }
 
+        if let Some(draft) = self.settings.as_mut() {
+            let ctx = ui.ctx().clone();
+            let response = egui::Modal::new(egui::Id::new("settings")).show(&ctx, |ui| {
+                ui.set_width(340.0);
+                ui.heading("Settings");
+                egui::Grid::new("settings_grid").num_columns(2).show(ui, |ui| {
+                    ui.label("Focus (min)");
+                    ui.add(egui::DragValue::new(&mut draft.focus_minutes).range(1..=180));
+                    ui.end_row();
+                    ui.label("Short break (min)");
+                    ui.add(egui::DragValue::new(&mut draft.short_break_minutes).range(1..=60));
+                    ui.end_row();
+                    ui.label("Long break (min)");
+                    ui.add(egui::DragValue::new(&mut draft.long_break_minutes).range(1..=120));
+                    ui.end_row();
+                    ui.label("Long break after");
+                    ui.add(egui::DragValue::new(&mut draft.long_break_after).range(1..=12));
+                    ui.end_row();
+                    ui.label("Auto-start breaks");
+                    ui.checkbox(&mut draft.auto_start_break, "");
+                    ui.end_row();
+                    ui.label("Auto-start focus");
+                    ui.checkbox(&mut draft.auto_start_focus, "");
+                    ui.end_row();
+                    ui.label("Leisure min / pomo");
+                    ui.add(egui::DragValue::new(&mut draft.leisure_minutes_per_pomo).range(0..=120));
+                    ui.end_row();
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Save").clicked() {
+                        action = Some(Action::SaveSettings);
+                    }
+                    if ui.button("Cancel").clicked() {
+                        action = Some(Action::CloseSettings);
+                    }
+                });
+            });
+            if response.should_close() {
+                action = Some(Action::CloseSettings);
+            }
+        }
+
         if let Some(action) = action {
             self.handle(action, now);
         }
@@ -369,6 +508,7 @@ fn card_ui(
     task: &Task,
     completed: u32,
     active_session: Option<&PomodoroSession>,
+    pending: Option<TimerPhase>,
     now: DateTime<Utc>,
 ) -> Option<Action> {
     let mut action = None;
@@ -403,6 +543,10 @@ fn card_ui(
                     if ui.button(advance_label(session.phase())).clicked() {
                         action = Some(Action::Advance(task.id()));
                     }
+                } else if let Some(phase) = pending
+                    && ui.button(format!("Start {}", phase_label(phase))).clicked()
+                {
+                    action = Some(Action::StartNext(task.id()));
                 }
                 ui.horizontal(|ui| {
                     if ui.button("Pause").clicked() {

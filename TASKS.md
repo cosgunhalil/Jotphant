@@ -53,7 +53,7 @@ click-to-open card detail, task descriptions.
 
 - [x] 2.1 TOML config load/save + defaults (`[pomodoro]`/`[rewards]`) (test-first) —
       *adds `serde`, `toml`*
-- [ ] 2.2 In-app settings screen to edit config
+- [x] 2.2 In-app settings screen to edit config (+ manual start-next-phase when auto-start off)
 
 ## M3 — Notes
 
