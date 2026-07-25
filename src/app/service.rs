@@ -242,6 +242,28 @@ where
         Ok(task)
     }
 
+    /// Catches up a timer that elapsed while the app was closed.
+    ///
+    /// If the active task has a running session whose configured duration has already
+    /// passed, its phase is completed and the next one started (as if the timer had fired
+    /// at the moment it expired). The next phase starts fresh from `now`, so time spent
+    /// with the app closed is not replayed as extra phases. A no-op if nothing is active
+    /// or the running timer has time left.
+    ///
+    /// # Errors
+    /// Returns a storage error, or a transition error while advancing.
+    pub fn reconcile_active_timer(&self, now: DateTime<Utc>) -> Result<(), Error> {
+        let Some(active) = self.store.find_active_task()? else {
+            return Ok(());
+        };
+        if let Some(session) = self.running_session(active.id())?
+            && session.is_expired(now)
+        {
+            self.advance_pomodoro(active.id(), now)?;
+        }
+        Ok(())
+    }
+
     /// Lists all tasks.
     ///
     /// # Errors
@@ -615,6 +637,51 @@ mod tests {
             .expect("query")
             .expect("long break");
         assert_eq!(running.phase(), TimerPhase::LongBreak);
+    }
+
+    #[test]
+    fn reconcile_completes_a_timer_that_expired_while_closed() {
+        let service = service(); // default focus = 25 min
+        let task = service.create_task("left running", 4, ts()).expect("create");
+        service.start_task(task.id(), ts()).expect("start");
+
+        // Reopen 40 minutes later — the focus should have finished.
+        let later = ts() + chrono::Duration::seconds(40 * 60);
+        service
+            .reconcile_active_timer(later)
+            .expect("reconcile on reopen");
+
+        let running = service
+            .running_session(task.id())
+            .expect("query")
+            .expect("a break is running");
+        assert_eq!(running.phase(), TimerPhase::ShortBreak);
+        // The new phase started fresh from `later`, not back-dated.
+        assert!(!running.is_expired(later));
+    }
+
+    #[test]
+    fn reconcile_leaves_a_still_running_timer_alone() {
+        let service = service();
+        let task = service.create_task("mid focus", 4, ts()).expect("create");
+        service.start_task(task.id(), ts()).expect("start");
+
+        // Reopen 5 minutes into a 25-minute focus.
+        let later = ts() + chrono::Duration::seconds(5 * 60);
+        service.reconcile_active_timer(later).expect("reconcile");
+
+        let running = service
+            .running_session(task.id())
+            .expect("query")
+            .expect("still running");
+        assert_eq!(running.phase(), TimerPhase::Focus);
+    }
+
+    #[test]
+    fn reconcile_is_a_noop_without_an_active_task() {
+        let service = service();
+        service.create_task("idle", 1, ts()).expect("create");
+        service.reconcile_active_timer(ts()).expect("reconcile");
     }
 
     #[test]

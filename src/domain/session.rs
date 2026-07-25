@@ -147,6 +147,27 @@ impl PomodoroSession {
     pub fn finished_at(&self) -> Option<DateTime<Utc>> {
         self.finished_at
     }
+
+    /// Seconds elapsed since the session started, as of `now`.
+    #[must_use]
+    pub fn elapsed_seconds(&self, now: DateTime<Utc>) -> i64 {
+        (now - self.started_at).num_seconds()
+    }
+
+    /// Seconds left until the configured duration elapses (negative once past it).
+    ///
+    /// This is derived purely from `started_at` and the configured duration, so a running
+    /// timer is restored correctly after an app restart.
+    #[must_use]
+    pub fn remaining_seconds(&self, now: DateTime<Utc>) -> i64 {
+        i64::from(self.configured_duration_seconds) - self.elapsed_seconds(now)
+    }
+
+    /// Whether the configured duration has fully elapsed as of `now`.
+    #[must_use]
+    pub fn is_expired(&self, now: DateTime<Utc>) -> bool {
+        self.remaining_seconds(now) <= 0
+    }
 }
 
 #[cfg(test)]
@@ -195,5 +216,27 @@ mod tests {
         session.abandon(ts());
         assert_eq!(session.status(), SessionStatus::Abandoned);
         assert_eq!(session.finished_at(), Some(ts()));
+    }
+
+    #[test]
+    fn remaining_and_expiry_track_elapsed_time() {
+        let start = DateTime::from_timestamp(1000, 0).expect("valid timestamp");
+        let session =
+            PomodoroSession::new(PomodoroSessionId::new(1), TaskId::new(1), TimerPhase::Focus, 60, start);
+
+        assert_eq!(session.remaining_seconds(start), 60);
+        assert!(!session.is_expired(start));
+
+        let midway = DateTime::from_timestamp(1030, 0).expect("valid timestamp");
+        assert_eq!(session.remaining_seconds(midway), 30);
+        assert!(!session.is_expired(midway));
+
+        let at_end = DateTime::from_timestamp(1060, 0).expect("valid timestamp");
+        assert_eq!(session.remaining_seconds(at_end), 0);
+        assert!(session.is_expired(at_end));
+
+        let past = DateTime::from_timestamp(1100, 0).expect("valid timestamp");
+        assert!(session.remaining_seconds(past) < 0);
+        assert!(session.is_expired(past));
     }
 }

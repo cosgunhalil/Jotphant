@@ -74,6 +74,10 @@ where
             selected: None,
             detail_description: String::new(),
         };
+        // Catch up any timer that elapsed while the app was closed, then load state.
+        if let Err(error) = app.service.reconcile_active_timer(Utc::now()) {
+            app.status = Some(error.to_string());
+        }
         app.refresh();
         app
     }
@@ -121,7 +125,7 @@ where
     /// Auto-completes the active focus pomo once its countdown reaches zero.
     fn tick(&mut self, now: DateTime<Utc>) {
         let expired = match (&self.active_task, &self.active_session) {
-            (Some(task), Some(session)) if remaining_seconds(session, now) <= 0 => Some(task.id()),
+            (Some(task), Some(session)) if session.is_expired(now) => Some(task.id()),
             _ => None,
         };
         if let Some(task_id) = expired {
@@ -283,7 +287,7 @@ where
                     ui.label(format!(
                         "{} {}",
                         phase_label(session.phase()),
-                        format_mmss(remaining_seconds(session, now))
+                        format_mmss(session.remaining_seconds(now))
                     ));
                     if ui.button(advance_label(session.phase())).clicked() {
                         action = Some(Action::Advance(selected_id));
@@ -390,7 +394,7 @@ fn card_ui(
                     ui.label(format!(
                         "{} {}",
                         phase_label(session.phase()),
-                        format_mmss(remaining_seconds(session, now))
+                        format_mmss(session.remaining_seconds(now))
                     ));
                     if ui.button(advance_label(session.phase())).clicked() {
                         action = Some(Action::Advance(task.id()));
@@ -470,12 +474,6 @@ fn advance_label(phase: TimerPhase) -> &'static str {
     } else {
         "Skip break"
     }
-}
-
-/// Seconds left in a focus session (may be negative once elapsed).
-fn remaining_seconds(session: &PomodoroSession, now: DateTime<Utc>) -> i64 {
-    let elapsed = (now - session.started_at()).num_seconds();
-    i64::from(session.configured_duration_seconds()) - elapsed
 }
 
 /// Formats a (possibly negative) second count as `MM:SS`, clamped at zero.
