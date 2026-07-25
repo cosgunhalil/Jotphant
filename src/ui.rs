@@ -1,8 +1,10 @@
-//! egui presentation layer.
+//! egui presentation layer — a Trello-style board.
 //!
-//! Talks only to [`crate::app::TaskService`]. It caches what it displays and refreshes
-//! after each action (and when a pomo expires) rather than querying storage every frame.
+//! Talks only to [`crate::app::TaskService`]. Cards are grouped into status columns
+//! (`Todo · In Progress · Paused · Done`; `Cancelled` is hidden). The view caches what it
+//! displays and refreshes after each action rather than querying storage every frame.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -16,11 +18,21 @@ use crate::domain::repository::{
 use crate::domain::session::PomodoroSession;
 use crate::domain::task::{Task, TaskStatus};
 
-/// A user action captured during rendering and applied after, so rendering never borrows
-/// `self` while a mutating service call runs.
+/// The columns shown on the board, in order. `Cancelled` is intentionally omitted.
+const COLUMNS: [(TaskStatus, &str); 4] = [
+    (TaskStatus::Todo, "Todo"),
+    (TaskStatus::InProgress, "In Progress"),
+    (TaskStatus::Paused, "Paused"),
+    (TaskStatus::Done, "Done"),
+];
+
+/// A user action captured during rendering and applied afterwards, so rendering never
+/// borrows `self` while a mutating service call runs.
 enum Action {
     Create,
     Start(TaskId),
+    Pause(TaskId),
+    Cancel(TaskId),
     CompletePomo(TaskId),
     CompleteTask(TaskId),
 }
@@ -31,6 +43,7 @@ pub struct JotphantApp<S> {
     new_title: String,
     new_estimate: u32,
     tasks: Vec<Task>,
+    progress: HashMap<TaskId, u32>,
     balance: i64,
     active_task: Option<Task>,
     active_session: Option<PomodoroSession>,
@@ -48,6 +61,7 @@ where
             new_title: String::new(),
             new_estimate: 1,
             tasks: Vec::new(),
+            progress: HashMap::new(),
             balance: 0,
             active_task: None,
             active_session: None,
@@ -57,12 +71,22 @@ where
         app
     }
 
-    /// Reloads cached tasks, balance, and the active task/session from storage.
+    /// Reloads cached tasks, per-task progress, balance, and the active task/session.
     fn refresh(&mut self) {
         match self.service.list_tasks() {
             Ok(tasks) => self.tasks = tasks,
             Err(error) => self.status = Some(error.to_string()),
         }
+        let mut progress = HashMap::new();
+        for task in &self.tasks {
+            match self.service.completed_pomos(task.id()) {
+                Ok(count) => {
+                    progress.insert(task.id(), count);
+                }
+                Err(error) => self.status = Some(error.to_string()),
+            }
+        }
+        self.progress = progress;
         match self.service.bank_balance() {
             Ok(balance) => self.balance = balance,
             Err(error) => self.status = Some(error.to_string()),
@@ -120,6 +144,8 @@ where
                 created
             }
             Action::Start(id) => self.service.start_task(id, now).map(|_| ()),
+            Action::Pause(id) => self.service.pause_task(id, now).map(|_| ()),
+            Action::Cancel(id) => self.service.cancel_task(id, now).map(|_| ()),
             Action::CompletePomo(id) => self.service.complete_active_pomo(id, now),
             Action::CompleteTask(id) => self.service.complete_task(id, now).map(|_| ()),
         };
@@ -138,51 +164,56 @@ where
 
         let mut action: Option<Action> = None;
         egui::CentralPanel::default_margins().show(ui, |ui| {
-            ui.heading("Jotphant");
-            ui.label(format!("Bank: {} pomos", self.balance));
+            ui.horizontal(|ui| {
+                ui.heading("Jotphant");
+                ui.separator();
+                ui.label(format!("Bank: {} pomos", self.balance));
+            });
             if let Some(message) = &self.status {
                 ui.colored_label(egui::Color32::RED, message);
             }
             ui.separator();
 
-            ui.horizontal(|ui| {
-                ui.label("New task:");
-                ui.text_edit_singleline(&mut self.new_title);
-                ui.label("estimate");
-                ui.add(egui::DragValue::new(&mut self.new_estimate).range(0..=999));
-                if ui.button("Add").clicked() {
-                    action = Some(Action::Create);
+            ui.columns(COLUMNS.len(), |columns| {
+                for (index, (status, title)) in COLUMNS.iter().enumerate() {
+                    let ui = &mut columns[index];
+                    let count = self.tasks.iter().filter(|t| t.status() == *status).count();
+                    ui.strong(format!("{title}  ({count})"));
+                    ui.separator();
+
+                    egui::ScrollArea::vertical()
+                        .id_salt(*title)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            for task in self.tasks.iter().filter(|t| t.status() == *status) {
+                                let completed = self.progress.get(&task.id()).copied().unwrap_or(0);
+                                let session = if Some(task.id()) == self.active_task.as_ref().map(Task::id) {
+                                    self.active_session.as_ref()
+                                } else {
+                                    None
+                                };
+                                if let Some(card_action) = card_ui(ui, task, completed, session, now) {
+                                    action = Some(card_action);
+                                }
+                            }
+
+                            if *status == TaskStatus::Todo {
+                                ui.separator();
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.new_title)
+                                        .hint_text("New task title"),
+                                );
+                                ui.horizontal(|ui| {
+                                    ui.label("est");
+                                    ui.add(egui::DragValue::new(&mut self.new_estimate).range(0..=999));
+                                    if ui.button("Add").clicked() {
+                                        action = Some(Action::Create);
+                                    }
+                                });
+                            }
+                        });
                 }
             });
-            ui.separator();
-
-            if let Some(task) = &self.active_task {
-                ui.strong(format!("Active: {}", task.title()));
-                if let Some(session) = &self.active_session {
-                    ui.label(format!("Focus: {}", format_mmss(remaining_seconds(session, now))));
-                    if ui.button("Complete pomo").clicked() {
-                        action = Some(Action::CompletePomo(task.id()));
-                    }
-                } else {
-                    ui.label("No running pomo");
-                }
-                if ui.button("Complete task").clicked() {
-                    action = Some(Action::CompleteTask(task.id()));
-                }
-                ui.separator();
-            }
-
-            ui.heading("Tasks");
-            for task in &self.tasks {
-                ui.horizontal(|ui| {
-                    ui.label(format!("{} — {:?}", task.title(), task.status()));
-                    if matches!(task.status(), TaskStatus::Todo | TaskStatus::Paused)
-                        && ui.button("Start").clicked()
-                    {
-                        action = Some(Action::Start(task.id()));
-                    }
-                });
-            }
         });
 
         if let Some(action) = action {
@@ -194,6 +225,67 @@ where
             ui.ctx().request_repaint_after(Duration::from_millis(500));
         }
     }
+}
+
+/// Renders one task card and returns the action its buttons requested, if any.
+fn card_ui(
+    ui: &mut egui::Ui,
+    task: &Task,
+    completed: u32,
+    active_session: Option<&PomodoroSession>,
+    now: DateTime<Utc>,
+) -> Option<Action> {
+    let mut action = None;
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.strong(task.title());
+        ui.label(format!("{completed}/{} pomos", task.estimated_pomos()));
+
+        match task.status() {
+            TaskStatus::Todo => {
+                if ui.button("Start").clicked() {
+                    action = Some(Action::Start(task.id()));
+                }
+            }
+            TaskStatus::InProgress => {
+                if let Some(session) = active_session {
+                    ui.label(format!("⏱ {}", format_mmss(remaining_seconds(session, now))));
+                    if ui.button("Complete pomo").clicked() {
+                        action = Some(Action::CompletePomo(task.id()));
+                    }
+                }
+                ui.horizontal(|ui| {
+                    if ui.button("Pause").clicked() {
+                        action = Some(Action::Pause(task.id()));
+                    }
+                    if ui.button("Complete").clicked() {
+                        action = Some(Action::CompleteTask(task.id()));
+                    }
+                    if ui.button("Cancel").clicked() {
+                        action = Some(Action::Cancel(task.id()));
+                    }
+                });
+            }
+            TaskStatus::Paused => {
+                ui.horizontal(|ui| {
+                    if ui.button("Resume").clicked() {
+                        action = Some(Action::Start(task.id()));
+                    }
+                    if ui.button("Complete").clicked() {
+                        action = Some(Action::CompleteTask(task.id()));
+                    }
+                    if ui.button("Cancel").clicked() {
+                        action = Some(Action::Cancel(task.id()));
+                    }
+                });
+            }
+            TaskStatus::Done => {
+                ui.label("✓ done");
+            }
+            TaskStatus::Cancelled => {}
+        }
+    });
+    action
 }
 
 /// Seconds left in a focus session (may be negative once elapsed).

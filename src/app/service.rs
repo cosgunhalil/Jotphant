@@ -229,6 +229,15 @@ where
         Ok(task)
     }
 
+    /// Returns the number of completed focus pomos for a task (its measured effort).
+    ///
+    /// # Errors
+    /// Returns a storage error if the query fails.
+    pub fn completed_pomos(&self, task_id: TaskId) -> Result<u32, Error> {
+        let sessions = self.store.list_sessions_for_task(task_id)?;
+        Ok(reward::completed_focus_pomos(&sessions))
+    }
+
     /// Returns the current pomo bank balance.
     ///
     /// # Errors
