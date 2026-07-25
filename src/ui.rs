@@ -100,6 +100,7 @@ enum Action {
     PinNote(NoteId, bool),
     ArchiveNote(NoteId, bool),
     SearchNotes,
+    QuickJot(TaskId),
 }
 
 /// Persists the configuration; injected by the composition root so the UI need not know
@@ -133,6 +134,7 @@ pub struct JotphantApp<S> {
     note_preview: bool,
     note_backlinks: Vec<Note>,
     md_cache: CommonMarkCache,
+    quick_jot_text: String,
 }
 
 impl<S> JotphantApp<S>
@@ -168,6 +170,7 @@ where
             note_preview: false,
             note_backlinks: Vec::new(),
             md_cache: CommonMarkCache::default(),
+            quick_jot_text: String::new(),
         };
         // Catch up any timer that elapsed while the app was closed, then load state.
         if let Err(error) = app.service.reconcile_active_timer(Utc::now()) {
@@ -304,6 +307,16 @@ where
             }
             Action::SearchNotes => {
                 self.refresh_notes();
+                return;
+            }
+            Action::QuickJot(id) => {
+                let text = self.quick_jot_text.trim().to_owned();
+                if !text.is_empty() {
+                    match self.service.quick_jot(id, &text, now) {
+                        Ok(_) => self.quick_jot_text.clear(),
+                        Err(error) => self.status = Some(error.to_string()),
+                    }
+                }
                 return;
             }
             Action::NewNote => {
@@ -566,6 +579,19 @@ where
                 );
                 if ui.button("Save description").clicked() {
                     action = Some(Action::SaveDescription(selected_id));
+                }
+
+                ui.separator();
+                ui.label("Quick note");
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.quick_jot_text)
+                            .desired_width(f32::INFINITY)
+                            .hint_text("jot a note for this task"),
+                    );
+                });
+                if ui.button("Jot").clicked() {
+                    action = Some(Action::QuickJot(selected_id));
                 }
 
                 ui.separator();

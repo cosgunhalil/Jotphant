@@ -15,6 +15,17 @@ use crate::domain::session::{PomodoroSession, SessionStatus, TimerPhase};
 use crate::domain::task::{Task, TaskStatus};
 use crate::domain::wikilink;
 
+/// Derives a note title from quick-jot text: its first non-empty line (truncated), or
+/// `"Quick note"` if there is none.
+fn quick_jot_title(text: &str) -> String {
+    let first = text.lines().next().unwrap_or("").trim();
+    if first.is_empty() {
+        "Quick note".to_owned()
+    } else {
+        first.chars().take(80).collect()
+    }
+}
+
 /// Orchestrates the task workflow over injected repository ports.
 ///
 /// `S` is any store implementing the persistence ports; the composition root injects a
@@ -406,6 +417,23 @@ where
         };
         self.store.set_note_links(note.id(), &ids)?;
         Ok(())
+    }
+
+    /// Creates a note attached to a task (the quick-jot bridge). The first line becomes
+    /// the title; the whole text is the body.
+    ///
+    /// # Errors
+    /// Returns a storage error if the insert fails.
+    pub fn quick_jot(
+        &self,
+        task_id: TaskId,
+        text: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Note, Error> {
+        let title = quick_jot_title(text);
+        let note = self.store.create_note(&title, text, Some(task_id), now)?;
+        self.update_links_for(&note)?;
+        Ok(note)
     }
 
     /// Returns the notes that link to the given note (its backlinks).
@@ -807,11 +835,20 @@ mod tests {
     #[test]
     fn wikilinks_in_a_note_body_create_backlinks() {
         let service = service();
-        let target = service.create_note("Target", "", ts()).expect("create target");
-        let source = service.create_note("Source", "", ts()).expect("create source");
+        let target = service
+            .create_note("Target", "", ts())
+            .expect("create target");
+        let source = service
+            .create_note("Source", "", ts())
+            .expect("create source");
 
         service
-            .save_note_content(source.id(), "Source".to_owned(), "see [[Target]]".to_owned(), ts())
+            .save_note_content(
+                source.id(),
+                "Source".to_owned(),
+                "see [[Target]]".to_owned(),
+                ts(),
+            )
             .expect("save source");
 
         let backlinks = service.note_backlinks(target.id()).expect("backlinks");
@@ -820,9 +857,40 @@ mod tests {
 
         // A dangling link to a non-existent title is simply ignored.
         service
-            .save_note_content(source.id(), "Source".to_owned(), "[[Nope]]".to_owned(), ts())
+            .save_note_content(
+                source.id(),
+                "Source".to_owned(),
+                "[[Nope]]".to_owned(),
+                ts(),
+            )
             .expect("save with dangling link");
-        assert!(service.note_backlinks(target.id()).expect("backlinks").is_empty());
+        assert!(
+            service
+                .note_backlinks(target.id())
+                .expect("backlinks")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn quick_jot_attaches_a_note_to_the_task() {
+        let service = service();
+        let task = service.create_task("work", 1, ts()).expect("create");
+
+        let note = service
+            .quick_jot(task.id(), "first line\nmore detail", ts())
+            .expect("jot");
+        assert_eq!(note.task_id(), Some(task.id()));
+        assert_eq!(note.title(), "first line");
+        assert_eq!(note.body_markdown(), "first line\nmore detail");
+
+        let listed = service.list_notes().expect("list");
+        assert!(
+            listed
+                .iter()
+                .any(|candidate| candidate.id() == note.id()
+                    && candidate.task_id() == Some(task.id()))
+        );
     }
 
     #[test]
