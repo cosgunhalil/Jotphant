@@ -57,7 +57,7 @@ click-to-open card detail, task descriptions.
 
 ## M3 — Notes
 
-- [ ] 3.1 Notes domain + storage: `Note`, tags, links; migrations (test-first)
+- [x] 3.1 Notes domain + storage: `Note`, tags, links; migrations (test-first)
 - [ ] 3.2 Notes UI: list, Markdown edit + preview, search, tags, pin/archive —
       *adds a markdown renderer*
 - [ ] 3.3 `[[wiki-link]]` parsing + backlinks view (test-first parser)

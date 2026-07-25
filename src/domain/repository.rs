@@ -8,7 +8,8 @@
 use chrono::{DateTime, Utc};
 
 use crate::domain::bank::{BankTransaction, BankTransactionType};
-use crate::domain::ids::TaskId;
+use crate::domain::ids::{NoteId, TaskId};
+use crate::domain::note::Note;
 use crate::domain::session::{PomodoroSession, TimerPhase};
 use crate::domain::task::Task;
 
@@ -110,6 +111,74 @@ pub trait Transactional {
     fn transaction<T, F>(&self, operation: F) -> Result<T, RepositoryError>
     where
         F: FnOnce() -> Result<T, RepositoryError>;
+}
+
+/// Persistence operations for notes, their tags, and their links.
+pub trait NoteRepository {
+    /// Inserts a new note and returns it with its assigned id.
+    ///
+    /// # Errors
+    /// Returns [`RepositoryError`] if the insert fails.
+    fn create_note(
+        &self,
+        title: &str,
+        body_markdown: &str,
+        task_id: Option<TaskId>,
+        created_at: DateTime<Utc>,
+    ) -> Result<Note, RepositoryError>;
+
+    /// Fetches a note by id, or `None` if it does not exist.
+    ///
+    /// # Errors
+    /// Returns [`RepositoryError`] if the query fails.
+    fn get_note(&self, id: NoteId) -> Result<Option<Note>, RepositoryError>;
+
+    /// Lists all notes, pinned first then most-recently-updated.
+    ///
+    /// # Errors
+    /// Returns [`RepositoryError`] if the query fails.
+    fn list_notes(&self) -> Result<Vec<Note>, RepositoryError>;
+
+    /// Lists notes whose title or body contains `query` (case-insensitive substring).
+    ///
+    /// # Errors
+    /// Returns [`RepositoryError`] if the query fails.
+    fn search_notes(&self, query: &str) -> Result<Vec<Note>, RepositoryError>;
+
+    /// Persists changes to an existing note.
+    ///
+    /// # Errors
+    /// Returns [`RepositoryError::NotFound`] if no note with the given id exists, or a
+    /// backend error otherwise.
+    fn update_note(&self, note: &Note) -> Result<(), RepositoryError>;
+
+    /// Replaces the full set of tags on a note.
+    ///
+    /// # Errors
+    /// Returns [`RepositoryError`] if the update fails.
+    fn set_note_tags(&self, note_id: NoteId, tags: &[String]) -> Result<(), RepositoryError>;
+
+    /// Returns a note's tags, sorted.
+    ///
+    /// # Errors
+    /// Returns [`RepositoryError`] if the query fails.
+    fn note_tags(&self, note_id: NoteId) -> Result<Vec<String>, RepositoryError>;
+
+    /// Replaces the full set of outgoing links from a note.
+    ///
+    /// # Errors
+    /// Returns [`RepositoryError`] if the update fails.
+    fn set_note_links(
+        &self,
+        from_note_id: NoteId,
+        to_note_ids: &[NoteId],
+    ) -> Result<(), RepositoryError>;
+
+    /// Returns the ids of notes that link to `to_note_id` (backlinks).
+    ///
+    /// # Errors
+    /// Returns [`RepositoryError`] if the query fails.
+    fn backlinks(&self, to_note_id: NoteId) -> Result<Vec<NoteId>, RepositoryError>;
 }
 
 /// Persistence operations for the bank ledger.

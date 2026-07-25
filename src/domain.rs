@@ -7,6 +7,7 @@
 pub mod bank;
 pub mod config;
 pub mod ids;
+pub mod note;
 pub mod pomodoro;
 pub mod repository;
 pub mod reward;
@@ -15,10 +16,12 @@ pub mod task;
 
 pub use bank::{BankTransaction, BankTransactionType};
 pub use config::AppConfig;
-pub use ids::{BankTransactionId, PomodoroSessionId, TaskId};
+pub use ids::{BankTransactionId, NoteId, PomodoroSessionId, TaskId};
+pub use note::Note;
 pub use pomodoro::PomodoroConfig;
 pub use repository::{
-    BankRepository, RepositoryError, SessionRepository, TaskRepository, Transactional,
+    BankRepository, NoteRepository, RepositoryError, SessionRepository, TaskRepository,
+    Transactional,
 };
 pub use session::{PomodoroSession, SessionStatus, TimerPhase};
 pub use task::{InvalidTransition, Task, TaskStatus};

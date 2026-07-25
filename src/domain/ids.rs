@@ -39,3 +39,7 @@ id_type!(
     /// Identifies a bank ledger transaction.
     BankTransactionId
 );
+id_type!(
+    /// Identifies a note.
+    NoteId
+);

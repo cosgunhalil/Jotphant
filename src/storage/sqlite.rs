@@ -54,6 +54,11 @@ impl SqliteStore {
         schema::migrate(&conn)?;
         Ok(Self { conn })
     }
+
+    /// The underlying connection, for repository impls in sibling modules.
+    pub(crate) fn connection(&self) -> &Connection {
+        &self.conn
+    }
 }
 
 // --- Column lists (kept in one place so SELECTs and row mappers stay in sync) ---
@@ -134,11 +139,11 @@ fn bank_type_from_str(value: &str) -> Result<BankTransactionType, RepositoryErro
     }
 }
 
-fn datetime_to_str(value: DateTime<Utc>) -> String {
+pub(crate) fn datetime_to_str(value: DateTime<Utc>) -> String {
     value.to_rfc3339()
 }
 
-fn datetime_from_str(value: &str) -> Result<DateTime<Utc>, RepositoryError> {
+pub(crate) fn datetime_from_str(value: &str) -> Result<DateTime<Utc>, RepositoryError> {
     DateTime::parse_from_rfc3339(value)
         .map(|dt| dt.with_timezone(&Utc))
         .map_err(|error| RepositoryError::Backend {
