@@ -22,9 +22,9 @@ See [`SCOPE.md`](SCOPE.md) for the product scope and
 
 - [x] 0.1 Boot egui window + module scaffold (`domain`/`storage`/`app`/`ui`) — *adds `eframe`*
 - [x] 0.2 Domain core (test-first): entities + enums, transition validation, reward math
-- [ ] 0.3 SQLite storage (test-first, in-memory): connection, migrations
+- [x] 0.3 SQLite storage (test-first, in-memory): connection, migrations
       (`tasks`/`pomodoro_sessions`/`bank_transactions`), repository traits + rusqlite impl —
-      *adds `rusqlite` bundled, `chrono`*
+      *adds `rusqlite` bundled (`chrono` landed in 0.2)*
 - [ ] 0.4 App services (test-first): `create_task`, `start_task` (single active), record
       completed focus session, atomic `complete_task` → bank credit
 - [ ] 0.5 Minimal egui UI wired end-to-end: create/list task, Start, live countdown,

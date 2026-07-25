@@ -6,11 +6,13 @@
 
 pub mod bank;
 pub mod ids;
+pub mod repository;
 pub mod reward;
 pub mod session;
 pub mod task;
 
 pub use bank::{BankTransaction, BankTransactionType};
 pub use ids::{BankTransactionId, PomodoroSessionId, TaskId};
+pub use repository::{BankRepository, RepositoryError, SessionRepository, TaskRepository};
 pub use session::{PomodoroSession, SessionStatus, TimerPhase};
 pub use task::{InvalidTransition, Task, TaskStatus};

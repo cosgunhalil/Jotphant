@@ -70,6 +70,30 @@ impl PomodoroSession {
         }
     }
 
+    /// Reconstructs a session from persisted fields.
+    ///
+    /// Intended for the storage layer when hydrating a row.
+    #[must_use]
+    pub fn from_fields(
+        id: PomodoroSessionId,
+        task_id: TaskId,
+        phase: TimerPhase,
+        status: SessionStatus,
+        configured_duration_seconds: u32,
+        started_at: DateTime<Utc>,
+        finished_at: Option<DateTime<Utc>>,
+    ) -> Self {
+        Self {
+            id,
+            task_id,
+            phase,
+            status,
+            configured_duration_seconds,
+            started_at,
+            finished_at,
+        }
+    }
+
     /// Marks the session completed at `finished_at` (the full duration elapsed).
     pub fn complete(&mut self, finished_at: DateTime<Utc>) {
         self.status = SessionStatus::Completed;

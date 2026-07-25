@@ -121,6 +121,31 @@ impl Task {
         }
     }
 
+    /// Reconstructs a task from persisted fields.
+    ///
+    /// Intended for the storage layer when hydrating a row; it trusts the given values
+    /// rather than enforcing the `Todo` starting state that [`Task::new`] imposes.
+    #[must_use]
+    pub fn from_fields(
+        id: TaskId,
+        title: String,
+        status: TaskStatus,
+        estimated_pomos: u32,
+        linked_from: Option<TaskId>,
+        created_at: DateTime<Utc>,
+        completed_at: Option<DateTime<Utc>>,
+    ) -> Self {
+        Self {
+            id,
+            title,
+            status,
+            estimated_pomos,
+            linked_from,
+            created_at,
+            completed_at,
+        }
+    }
+
     /// Attempts to move the task to `target`.
     ///
     /// On a successful transition to [`TaskStatus::Done`], `now` is recorded as the
