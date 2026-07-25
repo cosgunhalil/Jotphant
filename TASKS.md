@@ -36,7 +36,7 @@ See [`SCOPE.md`](SCOPE.md) for the product scope and
 click-to-open card detail, task descriptions.
 
 - [x] B1 Add `description` to `Task` (domain + storage migration v2), test-first
-- [ ] B2 App `pause_task` / `cancel_task` services (board needs them), test-first
+- [x] B2 App `pause_task` / `cancel_task` services (board needs them), test-first
 - [ ] B3 Board layout: 4 status columns of cards with action buttons (replaces flat UI)
 - [ ] B4 Card detail modal (view/edit description, timer, actions)
 - [ ] B5 *(deferred)* Drag-and-drop between columns

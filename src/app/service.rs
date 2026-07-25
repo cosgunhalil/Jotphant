@@ -109,21 +109,14 @@ where
             return Err(Error::TaskNotActive);
         }
 
-        let mut sessions = self.store.list_sessions_for_task(task_id)?;
-        let earned = reward::completed_focus_pomos(&sessions);
+        let earned =
+            reward::completed_focus_pomos(&self.store.list_sessions_for_task(task_id)?);
         let amount = i32::try_from(earned).map_err(|_| Error::RewardOverflow)?;
         task.apply_transition(TaskStatus::Done, now)?;
 
         // Abandon any still-running session; its partial time is discarded and does not
         // count (it was never Completed, so `earned` above is unaffected).
-        let abandoned: Vec<PomodoroSession> = sessions
-            .iter_mut()
-            .filter(|session| session.status() == SessionStatus::Running)
-            .map(|session| {
-                session.abandon(now);
-                session.clone()
-            })
-            .collect();
+        let abandoned = self.collect_abandoned_running(task_id, now)?;
 
         self.store.transaction(|| {
             for session in &abandoned {
@@ -141,6 +134,66 @@ where
             Ok(())
         })?;
         Ok(earned)
+    }
+
+    /// Suspends the active task, abandoning its running pomo (partial time discarded).
+    ///
+    /// # Errors
+    /// Returns [`Error::TaskNotFound`], [`Error::Transition`] if the task is not
+    /// in-progress, or a storage error.
+    pub fn pause_task(&self, task_id: TaskId, now: DateTime<Utc>) -> Result<Task, Error> {
+        let mut task = self.store.get_task(task_id)?.ok_or(Error::TaskNotFound)?;
+        task.apply_transition(TaskStatus::Paused, now)?;
+        let abandoned = self.collect_abandoned_running(task_id, now)?;
+
+        self.store.transaction(|| {
+            for session in &abandoned {
+                self.store.update_session(session)?;
+            }
+            self.store.update_task(&task)?;
+            Ok(())
+        })?;
+        Ok(task)
+    }
+
+    /// Cancels a task. Its running pomo is abandoned and its unbanked pomos are
+    /// discarded (no reward); completed sessions remain in history.
+    ///
+    /// # Errors
+    /// Returns [`Error::TaskNotFound`], [`Error::Transition`] if the task is neither
+    /// in-progress nor paused, or a storage error.
+    pub fn cancel_task(&self, task_id: TaskId, now: DateTime<Utc>) -> Result<Task, Error> {
+        let mut task = self.store.get_task(task_id)?.ok_or(Error::TaskNotFound)?;
+        task.apply_transition(TaskStatus::Cancelled, now)?;
+        let abandoned = self.collect_abandoned_running(task_id, now)?;
+
+        self.store.transaction(|| {
+            for session in &abandoned {
+                self.store.update_session(session)?;
+            }
+            self.store.update_task(&task)?;
+            Ok(())
+        })?;
+        Ok(task)
+    }
+
+    /// Abandons the task's running sessions (in memory) and returns the updated copies to
+    /// persist. Their partial time is discarded and they never count as effort.
+    fn collect_abandoned_running(
+        &self,
+        task_id: TaskId,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<PomodoroSession>, Error> {
+        let mut sessions = self.store.list_sessions_for_task(task_id)?;
+        let abandoned = sessions
+            .iter_mut()
+            .filter(|session| session.status() == SessionStatus::Running)
+            .map(|session| {
+                session.abandon(now);
+                session.clone()
+            })
+            .collect();
+        Ok(abandoned)
     }
 
     /// Replaces a task's description, returning the updated task.
@@ -311,6 +364,92 @@ mod tests {
                 .expect("query")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn pause_task_suspends_and_abandons_running_pomo() {
+        let service = service();
+        let task = service.create_task("pause me", 2, ts()).expect("create");
+        service.start_task(task.id(), ts()).expect("start");
+
+        let paused = service.pause_task(task.id(), ts()).expect("pause");
+        assert_eq!(paused.status(), TaskStatus::Paused);
+        assert!(
+            service
+                .active_focus_session(task.id())
+                .expect("query")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn paused_task_can_be_resumed() {
+        let service = service();
+        let task = service.create_task("resume me", 2, ts()).expect("create");
+        service.start_task(task.id(), ts()).expect("start");
+        service.pause_task(task.id(), ts()).expect("pause");
+
+        let resumed = service.start_task(task.id(), ts()).expect("resume");
+        assert_eq!(resumed.status(), TaskStatus::InProgress);
+        assert!(
+            service
+                .active_focus_session(task.id())
+                .expect("query")
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn earned_pomos_accumulate_across_a_pause() {
+        let service = service();
+        let task = service.create_task("two sittings", 2, ts()).expect("create");
+        service.start_task(task.id(), ts()).expect("start");
+        service
+            .complete_active_pomo(task.id(), ts())
+            .expect("first pomo");
+        service.pause_task(task.id(), ts()).expect("pause");
+        service.start_task(task.id(), ts()).expect("resume");
+        service
+            .complete_active_pomo(task.id(), ts())
+            .expect("second pomo");
+
+        let earned = service.complete_task(task.id(), ts()).expect("complete");
+        assert_eq!(earned, 2);
+        assert_eq!(service.bank_balance().expect("balance"), 2);
+    }
+
+    #[test]
+    fn cannot_pause_a_todo_task() {
+        let service = service();
+        let task = service.create_task("still todo", 1, ts()).expect("create");
+        let error = service
+            .pause_task(task.id(), ts())
+            .expect_err("only in-progress tasks pause");
+        assert!(matches!(error, Error::Transition(_)));
+    }
+
+    #[test]
+    fn cancel_task_marks_cancelled_without_reward() {
+        let service = service();
+        let task = service.create_task("abandon ship", 2, ts()).expect("create");
+        service.start_task(task.id(), ts()).expect("start");
+        service
+            .complete_active_pomo(task.id(), ts())
+            .expect("one pomo done");
+
+        let cancelled = service.cancel_task(task.id(), ts()).expect("cancel");
+        assert_eq!(cancelled.status(), TaskStatus::Cancelled);
+        assert_eq!(service.bank_balance().expect("balance"), 0);
+    }
+
+    #[test]
+    fn cannot_cancel_a_todo_task() {
+        let service = service();
+        let task = service.create_task("never started", 1, ts()).expect("create");
+        let error = service
+            .cancel_task(task.id(), ts())
+            .expect_err("todo cannot be cancelled");
+        assert!(matches!(error, Error::Transition(_)));
     }
 
     #[test]
