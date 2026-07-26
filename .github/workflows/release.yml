@@ -1,0 +1,53 @@
+# Release pipeline: pushing a version tag (v0.1.0, v1.2.3, ...) builds the optimized
+# Windows binary, zips it, and publishes a GitHub Release with the artifact attached
+# and auto-generated notes.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+# Required to create the release and upload assets.
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-publish:
+    name: Build and publish
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # Never ship from a commit that fails the suite, even if CI was skipped.
+      - name: Tests
+        run: cargo test --locked
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $zip = "jotphant-${{ github.ref_name }}-windows-x86_64.zip"
+          Compress-Archive -Path target/release/Jotphant.exe -DestinationPath $zip
+          echo "ZIP_NAME=$zip" >> $env:GITHUB_ENV
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${{ github.ref_name }}"
+          "$env:ZIP_NAME"
+          --title "Jotphant ${{ github.ref_name }}"
+          --generate-notes
