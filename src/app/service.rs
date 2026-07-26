@@ -258,6 +258,37 @@ where
         Ok(abandoned)
     }
 
+    /// Updates a task's pomodoro estimate.
+    ///
+    /// # Errors
+    /// Returns [`Error::TaskNotFound`] if the task does not exist, or a storage error.
+    pub fn set_task_estimate(&self, id: TaskId, estimated_pomos: u32) -> Result<Task, Error> {
+        let mut task = self.store.get_task(id)?.ok_or(Error::TaskNotFound)?;
+        task.set_estimated_pomos(estimated_pomos);
+        self.store.update_task(&task)?;
+        Ok(task)
+    }
+
+    /// Creates a new `Todo` task linked as a follow-up of `from_task_id`.
+    ///
+    /// # Errors
+    /// Returns [`Error::TaskNotFound`] if the source task does not exist, or a storage
+    /// error.
+    pub fn create_follow_up(
+        &self,
+        from_task_id: TaskId,
+        title: &str,
+        estimated_pomos: u32,
+        now: DateTime<Utc>,
+    ) -> Result<Task, Error> {
+        // Ensure the source exists before linking to it.
+        self.store.get_task(from_task_id)?.ok_or(Error::TaskNotFound)?;
+        let mut task = self.store.create_task(title, estimated_pomos, now)?;
+        task.set_linked_from(Some(from_task_id));
+        self.store.update_task(&task)?;
+        Ok(task)
+    }
+
     /// Replaces a task's description, returning the updated task.
     ///
     /// # Errors
@@ -922,6 +953,35 @@ mod tests {
             .save_note_content(NoteId::new(123), "x".to_owned(), String::new(), ts())
             .expect_err("missing note");
         assert!(matches!(error, Error::NoteNotFound));
+    }
+
+    #[test]
+    fn task_estimate_can_be_edited() {
+        let service = service();
+        let task = service.create_task("plan", 2, ts()).expect("create");
+        let updated = service.set_task_estimate(task.id(), 5).expect("set estimate");
+        assert_eq!(updated.estimated_pomos(), 5);
+
+        let reloaded = service
+            .list_tasks()
+            .expect("list")
+            .into_iter()
+            .find(|candidate| candidate.id() == task.id())
+            .expect("exists");
+        assert_eq!(reloaded.estimated_pomos(), 5);
+    }
+
+    #[test]
+    fn follow_up_task_links_back_to_the_source() {
+        let service = service();
+        let original = service.create_task("ship v1", 3, ts()).expect("create");
+
+        let follow_up = service
+            .create_follow_up(original.id(), "ship v2", 4, ts())
+            .expect("follow-up");
+        assert_eq!(follow_up.linked_from(), Some(original.id()));
+        assert_eq!(follow_up.status(), TaskStatus::Todo);
+        assert_eq!(follow_up.estimated_pomos(), 4);
     }
 
     #[test]

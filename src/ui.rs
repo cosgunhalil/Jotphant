@@ -91,6 +91,8 @@ enum Action {
     SaveDescription(TaskId),
     CloseDetail,
     StartNext(TaskId),
+    SetEstimate(TaskId),
+    CreateFollowUp(TaskId),
     OpenSettings,
     SaveSettings,
     CloseSettings,
@@ -125,6 +127,7 @@ pub struct JotphantApp<S> {
     status: Option<String>,
     selected: Option<TaskId>,
     detail_description: String,
+    detail_estimate: u32,
     settings: Option<SettingsDraft>,
     view: View,
     notes: Vec<Note>,
@@ -167,6 +170,7 @@ where
             status: None,
             selected: None,
             detail_description: String::new(),
+            detail_estimate: 0,
             settings: None,
             view: View::Board,
             notes: Vec::new(),
@@ -251,6 +255,16 @@ where
         }
     }
 
+    /// Opens a task's detail: loads its description, estimate, and jots.
+    fn open_task(&mut self, id: TaskId) {
+        let task = self.tasks.iter().find(|task| task.id() == id);
+        self.detail_description = task.map(|task| task.description().to_owned()).unwrap_or_default();
+        self.detail_estimate = task.map_or(0, Task::estimated_pomos);
+        self.task_notes = self.service.task_notes(id).unwrap_or_default();
+        self.quick_jot_text.clear();
+        self.selected = Some(id);
+    }
+
     /// Loads a note's content and tags into the editor buffers.
     fn select_note(&mut self, id: NoteId) {
         self.selected_note = Some(id);
@@ -291,15 +305,28 @@ where
     fn handle(&mut self, action: Action, now: DateTime<Utc>) {
         let result = match action {
             Action::Open(id) => {
-                self.detail_description = self
-                    .tasks
-                    .iter()
-                    .find(|task| task.id() == id)
-                    .map(|task| task.description().to_owned())
-                    .unwrap_or_default();
-                self.task_notes = self.service.task_notes(id).unwrap_or_default();
-                self.quick_jot_text.clear();
-                self.selected = Some(id);
+                self.open_task(id);
+                return;
+            }
+            Action::SetEstimate(id) => {
+                if let Err(error) = self.service.set_task_estimate(id, self.detail_estimate) {
+                    self.status = Some(error.to_string());
+                }
+                self.refresh();
+                return;
+            }
+            Action::CreateFollowUp(id) => {
+                if let Some(source) = self.tasks.iter().find(|task| task.id() == id) {
+                    let title = source.title().to_owned();
+                    let estimate = source.estimated_pomos();
+                    match self.service.create_follow_up(id, &title, estimate, now) {
+                        Ok(new_task) => {
+                            self.refresh();
+                            self.open_task(new_task.id());
+                        }
+                        Err(error) => self.status = Some(error.to_string()),
+                    }
+                }
                 return;
             }
             Action::CloseDetail => {
@@ -566,11 +593,29 @@ where
                 ui.heading(task.title());
                 ui.label(format!("Status: {:?}", task.status()));
                 let completed = self.progress.get(&selected_id).copied().unwrap_or(0);
-                ui.label(format!(
-                    "Progress: {}/{} pomos",
-                    completed,
-                    task.estimated_pomos()
-                ));
+                ui.label(format!("Progress: {completed} pomos done"));
+                ui.horizontal(|ui| {
+                    ui.label("Estimate");
+                    ui.add(egui::DragValue::new(&mut self.detail_estimate).range(0..=999));
+                    if ui.button("Set").clicked() {
+                        action = Some(Action::SetEstimate(selected_id));
+                    }
+                });
+                if let Some(parent_id) = task.linked_from() {
+                    let parent_title = self
+                        .tasks
+                        .iter()
+                        .find(|candidate| candidate.id() == parent_id)
+                        .map(|candidate| candidate.title().to_owned());
+                    if let Some(title) = parent_title {
+                        ui.horizontal(|ui| {
+                            ui.label("Follow-up of:");
+                            if ui.link(title).clicked() {
+                                action = Some(Action::Open(parent_id));
+                            }
+                        });
+                    }
+                }
 
                 if task.status() == TaskStatus::InProgress {
                     if let Some(session) = self.active_session.as_ref() {
@@ -661,6 +706,11 @@ where
                             }
                         }
                         TaskStatus::Done | TaskStatus::Cancelled => {}
+                    }
+                    if task.status().is_terminal()
+                        && ui.button("Create follow-up").clicked()
+                    {
+                        action = Some(Action::CreateFollowUp(selected_id));
                     }
                     if ui.button("Close").clicked() {
                         action = Some(Action::CloseDetail);

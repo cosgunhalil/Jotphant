@@ -67,4 +67,4 @@ click-to-open card detail, task descriptions.
 
 - [x] 4.1 Desktop notification + sound at phase transitions — *adds `notify-rust` (toast sound; no audio crate)*
 - [ ] 4.2 History / reports view
-- [ ] 4.3 Linked follow-up tasks + editable estimate
+- [x] 4.3 Linked follow-up tasks + editable estimate

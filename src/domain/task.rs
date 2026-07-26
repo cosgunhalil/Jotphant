@@ -214,6 +214,16 @@ impl Task {
         self.linked_from
     }
 
+    /// Updates the pomodoro estimate.
+    pub fn set_estimated_pomos(&mut self, estimated_pomos: u32) {
+        self.estimated_pomos = estimated_pomos;
+    }
+
+    /// Sets the task this one follows up on.
+    pub fn set_linked_from(&mut self, linked_from: Option<TaskId>) {
+        self.linked_from = linked_from;
+    }
+
     /// When the task was created.
     #[must_use]
     pub fn created_at(&self) -> DateTime<Utc> {
