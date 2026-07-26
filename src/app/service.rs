@@ -412,22 +412,31 @@ where
         Ok(note)
     }
 
-    /// Lists all notes (pinned first, then most recently updated).
+    /// Lists the notebook's notes (pinned first, then most recently updated).
+    ///
+    /// Task-attached notes (jots) are excluded — they are comments on their task, shown
+    /// in the card detail, not notebook entries.
     ///
     /// # Errors
     /// Returns a storage error if the query fails.
     pub fn list_notes(&self) -> Result<Vec<Note>, Error> {
         let notes = self.store.list_notes()?;
-        Ok(notes)
+        Ok(notes
+            .into_iter()
+            .filter(|note| note.task_id().is_none())
+            .collect())
     }
 
-    /// Searches notes by title/body substring.
+    /// Searches notebook notes by title/body substring (task jots excluded).
     ///
     /// # Errors
     /// Returns a storage error if the query fails.
     pub fn search_notes(&self, query: &str) -> Result<Vec<Note>, Error> {
         let notes = self.store.search_notes(query)?;
-        Ok(notes)
+        Ok(notes
+            .into_iter()
+            .filter(|note| note.task_id().is_none())
+            .collect())
     }
 
     /// Updates a note's title and body, bumping its updated-at time.
@@ -492,11 +501,22 @@ where
 
     /// Returns the notes attached to a task (its jots), newest first.
     ///
+    /// Archived jots are excluded — archiving is how a jot is "deleted" from the
+    /// comment list while staying recoverable in storage.
+    ///
     /// # Errors
     /// Returns a storage error if the query fails.
     pub fn task_notes(&self, task_id: TaskId) -> Result<Vec<Note>, Error> {
         let notes = self.store.list_notes_for_task(task_id)?;
-        Ok(notes)
+        Ok(notes.into_iter().filter(|note| !note.archived()).collect())
+    }
+
+    /// Rewrites a jot's text, re-deriving its title from the first line.
+    ///
+    /// # Errors
+    /// Returns [`Error::NoteNotFound`] if the jot does not exist, or a storage error.
+    pub fn edit_jot(&self, id: NoteId, text: &str, now: DateTime<Utc>) -> Result<Note, Error> {
+        self.save_note_content(id, quick_jot_title(text), text.to_owned(), now)
     }
 
     /// Returns the notes that link to the given note (its backlinks).
@@ -966,13 +986,38 @@ mod tests {
         assert_eq!(note.title(), "first line");
         assert_eq!(note.body_markdown(), "first line\nmore detail");
 
+        // Jots are task comments: visible via task_notes, hidden from the notebook.
+        let jots = service.task_notes(task.id()).expect("jots");
+        assert!(jots.iter().any(|candidate| candidate.id() == note.id()));
         let listed = service.list_notes().expect("list");
-        assert!(
-            listed
-                .iter()
-                .any(|candidate| candidate.id() == note.id()
-                    && candidate.task_id() == Some(task.id()))
-        );
+        assert!(listed.iter().all(|candidate| candidate.id() != note.id()));
+    }
+
+    #[test]
+    fn archiving_a_jot_removes_it_from_the_comment_list() {
+        let service = service();
+        let task = service.create_task("work", 1, ts()).expect("task");
+        let jot = service.quick_jot(task.id(), "oops", ts()).expect("jot");
+
+        service
+            .set_note_archived(jot.id(), true, ts())
+            .expect("archive");
+        assert!(service.task_notes(task.id()).expect("jots").is_empty());
+    }
+
+    #[test]
+    fn edit_jot_rewrites_text_and_title() {
+        let service = service();
+        let task = service.create_task("work", 1, ts()).expect("task");
+        let jot = service
+            .quick_jot(task.id(), "draft thought", ts())
+            .expect("jot");
+
+        let edited = service
+            .edit_jot(jot.id(), "polished thought\nwith detail", ts())
+            .expect("edit");
+        assert_eq!(edited.body_markdown(), "polished thought\nwith detail");
+        assert_eq!(edited.title(), "polished thought");
     }
 
     #[test]

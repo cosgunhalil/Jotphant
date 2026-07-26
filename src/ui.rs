@@ -110,6 +110,10 @@ enum Action {
     ArchiveNote(NoteId, bool),
     SearchNotes,
     QuickJot(TaskId),
+    EditJot(NoteId),
+    SaveJotEdit(NoteId),
+    CancelJotEdit,
+    DeleteJot(NoteId),
     BeginDrag(TaskId),
     DropOn(TaskStatus),
     CancelDrag,
@@ -150,6 +154,8 @@ pub struct JotphantApp<S> {
     md_cache: CommonMarkCache,
     quick_jot_text: String,
     task_notes: Vec<Note>,
+    editing_jot: Option<NoteId>,
+    editing_jot_text: String,
     report: Vec<TaskEffort>,
     applied_theme: Option<ThemeChoice>,
     dragging: Option<TaskId>,
@@ -196,6 +202,8 @@ where
             md_cache: CommonMarkCache::default(),
             quick_jot_text: String::new(),
             task_notes: Vec::new(),
+            editing_jot: None,
+            editing_jot_text: String::new(),
             report: Vec::new(),
             applied_theme: None,
             dragging: None,
@@ -405,6 +413,44 @@ where
                         }
                         Err(error) => self.status = Some(error.to_string()),
                     }
+                }
+                return;
+            }
+            Action::EditJot(id) => {
+                self.editing_jot_text = self
+                    .task_notes
+                    .iter()
+                    .find(|note| note.id() == id)
+                    .map(|note| note.body_markdown().to_owned())
+                    .unwrap_or_default();
+                self.editing_jot = Some(id);
+                return;
+            }
+            Action::CancelJotEdit => {
+                self.editing_jot = None;
+                return;
+            }
+            Action::SaveJotEdit(id) => {
+                let text = self.editing_jot_text.trim().to_owned();
+                if !text.is_empty()
+                    && let Err(error) = self.service.edit_jot(id, &text, now)
+                {
+                    self.status = Some(error.to_string());
+                }
+                self.editing_jot = None;
+                if let Some(task_id) = self.selected {
+                    self.task_notes = self.service.task_notes(task_id).unwrap_or_default();
+                }
+                return;
+            }
+            Action::DeleteJot(id) => {
+                // "Delete" archives the jot: it leaves the comment list but stays
+                // recoverable in storage.
+                if let Err(error) = self.service.set_note_archived(id, true, now) {
+                    self.status = Some(error.to_string());
+                }
+                if let Some(task_id) = self.selected {
+                    self.task_notes = self.service.task_notes(task_id).unwrap_or_default();
                 }
                 return;
             }
@@ -838,8 +884,41 @@ where
                             for note in &self.task_notes {
                                 egui::Frame::group(ui.style()).show(ui, |ui| {
                                     ui.set_width(ui.available_width());
-                                    ui.label(note.body_markdown());
-                                    ui.weak(note.created_at().format("%Y-%m-%d %H:%M").to_string());
+                                    if self.editing_jot == Some(note.id()) {
+                                        let edit = ui.add(
+                                            egui::TextEdit::singleline(&mut self.editing_jot_text)
+                                                .desired_width(f32::INFINITY),
+                                        );
+                                        let saved = edit.lost_focus()
+                                            && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                        ui.horizontal(|ui| {
+                                            if saved || ui.small_button("Save").clicked() {
+                                                action = Some(Action::SaveJotEdit(note.id()));
+                                            }
+                                            if ui.small_button("Cancel").clicked() {
+                                                action = Some(Action::CancelJotEdit);
+                                            }
+                                        });
+                                    } else {
+                                        CommonMarkViewer::new().show(
+                                            ui,
+                                            &mut self.md_cache,
+                                            note.body_markdown(),
+                                        );
+                                        ui.horizontal(|ui| {
+                                            let mut stamp = relative_time(note.created_at(), now);
+                                            if note.updated_at() != note.created_at() {
+                                                stamp.push_str(" (edited)");
+                                            }
+                                            ui.weak(stamp);
+                                            if ui.small_button("Edit").clicked() {
+                                                action = Some(Action::EditJot(note.id()));
+                                            }
+                                            if ui.small_button("Delete").clicked() {
+                                                action = Some(Action::DeleteJot(note.id()));
+                                            }
+                                        });
+                                    }
                                 });
                             }
                         });
@@ -1200,6 +1279,24 @@ fn advance_label(phase: TimerPhase) -> &'static str {
     }
 }
 
+/// Formats how long ago `then` was, relative to `now` ("just now", "5 min ago", …).
+fn relative_time(then: DateTime<Utc>, now: DateTime<Utc>) -> String {
+    let seconds = (now - then).num_seconds();
+    if seconds < 60 {
+        "just now".to_owned()
+    } else if seconds < 3600 {
+        format!("{} min ago", seconds / 60)
+    } else if seconds < 86_400 {
+        format!("{} h ago", seconds / 3600)
+    } else if seconds < 2 * 86_400 {
+        "yesterday".to_owned()
+    } else if seconds < 7 * 86_400 {
+        format!("{} days ago", seconds / 86_400)
+    } else {
+        then.format("%Y-%m-%d").to_string()
+    }
+}
+
 /// Formats a (possibly negative) second count as `MM:SS`, clamped at zero.
 fn format_mmss(seconds: i64) -> String {
     let clamped = seconds.max(0);
@@ -1230,6 +1327,24 @@ mod tests {
         assert_eq!(format_mmss(65), "01:05");
         assert_eq!(format_mmss(0), "00:00");
         assert_eq!(format_mmss(-5), "00:00");
+    }
+
+    #[test]
+    fn relative_time_scales_with_age() {
+        let now = DateTime::from_timestamp(1_000_000, 0).expect("valid timestamp");
+        let at = |seconds_ago: i64| {
+            DateTime::from_timestamp(1_000_000 - seconds_ago, 0).expect("valid timestamp")
+        };
+        assert_eq!(relative_time(at(5), now), "just now");
+        assert_eq!(relative_time(at(300), now), "5 min ago");
+        assert_eq!(relative_time(at(2 * 3600), now), "2 h ago");
+        assert_eq!(relative_time(at(30 * 3600), now), "yesterday");
+        assert_eq!(relative_time(at(3 * 86_400), now), "3 days ago");
+        // Older than a week falls back to the date.
+        assert_eq!(
+            relative_time(at(30 * 86_400), now),
+            at(30 * 86_400).format("%Y-%m-%d").to_string()
+        );
     }
 
     #[test]
