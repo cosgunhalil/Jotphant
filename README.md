@@ -1,4 +1,4 @@
-# Jotphant 🐘🍅
+# Jotphant
 
 A warm desktop companion that combines a Trello-style task board, a strict
 Pomodoro timer, and a Markdown notebook. Focused work earns pomos; finishing a
