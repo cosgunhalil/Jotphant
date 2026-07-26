@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
-use crate::app::TaskService;
+use crate::app::{TaskEffort, TaskService};
 use crate::domain::config::AppConfig;
 use crate::domain::ids::{NoteId, TaskId};
 use crate::domain::note::Note;
@@ -28,6 +28,7 @@ use crate::notifier::Notifier;
 enum View {
     Board,
     Notes,
+    History,
 }
 
 /// Editable form state for the settings screen (durations in minutes).
@@ -141,6 +142,7 @@ pub struct JotphantApp<S> {
     md_cache: CommonMarkCache,
     quick_jot_text: String,
     task_notes: Vec<Note>,
+    report: Vec<TaskEffort>,
 }
 
 impl<S> JotphantApp<S>
@@ -184,6 +186,7 @@ where
             md_cache: CommonMarkCache::default(),
             quick_jot_text: String::new(),
             task_notes: Vec::new(),
+            report: Vec::new(),
         };
         // Catch up any timer that elapsed while the app was closed, then load state.
         if let Err(error) = app.service.reconcile_active_timer(Utc::now()) {
@@ -239,6 +242,14 @@ where
             }
             _ => None,
         };
+    }
+
+    /// Reloads the per-task effort report.
+    fn refresh_report(&mut self) {
+        match self.service.effort_by_task() {
+            Ok(report) => self.report = report,
+            Err(error) => self.status = Some(error.to_string()),
+        }
     }
 
     /// Reloads the notes list (search results if a query is present, else all).
@@ -343,8 +354,10 @@ where
             }
             Action::SwitchView(view) => {
                 self.view = view;
-                if view == View::Notes {
-                    self.refresh_notes();
+                match view {
+                    View::Notes => self.refresh_notes(),
+                    View::History => self.refresh_report(),
+                    View::Board => {}
                 }
                 return;
             }
@@ -479,6 +492,12 @@ where
                 {
                     action = Some(Action::SwitchView(View::Notes));
                 }
+                if ui
+                    .selectable_label(self.view == View::History, "History")
+                    .clicked()
+                {
+                    action = Some(Action::SwitchView(View::History));
+                }
             });
             if let Some(message) = &self.status {
                 ui.colored_label(egui::Color32::RED, message);
@@ -577,6 +596,40 @@ where
                         &mut self.md_cache,
                         &mut action,
                     );
+                }
+                View::History => {
+                    let total_effort: u32 =
+                        self.report.iter().map(TaskEffort::completed_pomos).sum();
+                    let minutes = self.balance.max(0) * i64::from(self.leisure_per_pomo);
+                    ui.label(format!("Total measured effort: {total_effort} pomos"));
+                    ui.label(format!(
+                        "Banked: {} pomos (≈ {minutes} min)",
+                        self.balance
+                    ));
+                    ui.separator();
+                    egui::ScrollArea::vertical()
+                        .id_salt("history")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            egui::Grid::new("history_grid")
+                                .num_columns(3)
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    ui.strong("Task");
+                                    ui.strong("Status");
+                                    ui.strong("Pomos");
+                                    ui.end_row();
+                                    for row in self.report.iter().filter(|row| {
+                                        row.completed_pomos() > 0
+                                            || row.task().status().is_terminal()
+                                    }) {
+                                        ui.label(row.task().title());
+                                        ui.label(format!("{:?}", row.task().status()));
+                                        ui.label(row.completed_pomos().to_string());
+                                        ui.end_row();
+                                    }
+                                });
+                        });
                 }
             }
         });

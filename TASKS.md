@@ -66,5 +66,5 @@ click-to-open card detail, task descriptions.
 ## M4 — Notifications & polish
 
 - [x] 4.1 Desktop notification + sound at phase transitions — *adds `notify-rust` (toast sound; no audio crate)*
-- [ ] 4.2 History / reports view
+- [x] 4.2 History / reports view
 - [x] 4.3 Linked follow-up tasks + editable estimate

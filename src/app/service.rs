@@ -26,6 +26,27 @@ fn quick_jot_title(text: &str) -> String {
     }
 }
 
+/// A row in the effort report: a task and its measured (completed focus) effort.
+#[derive(Debug, Clone)]
+pub struct TaskEffort {
+    task: Task,
+    completed_pomos: u32,
+}
+
+impl TaskEffort {
+    /// The task.
+    #[must_use]
+    pub fn task(&self) -> &Task {
+        &self.task
+    }
+
+    /// The task's completed focus pomos (measured effort).
+    #[must_use]
+    pub fn completed_pomos(&self) -> u32 {
+        self.completed_pomos
+    }
+}
+
 /// Orchestrates the task workflow over injected repository ports.
 ///
 /// `S` is any store implementing the persistence ports; the composition root injects a
@@ -543,6 +564,24 @@ where
         Ok(())
     }
 
+    /// Reports each task's measured effort (completed focus pomos), in task order.
+    ///
+    /// # Errors
+    /// Returns a storage error if a query fails.
+    pub fn effort_by_task(&self) -> Result<Vec<TaskEffort>, Error> {
+        let tasks = self.store.list_tasks()?;
+        let mut rows = Vec::with_capacity(tasks.len());
+        for task in tasks {
+            let completed_pomos =
+                reward::completed_focus_pomos(&self.store.list_sessions_for_task(task.id())?);
+            rows.push(TaskEffort {
+                task,
+                completed_pomos,
+            });
+        }
+        Ok(rows)
+    }
+
     /// Lists all tasks.
     ///
     /// # Errors
@@ -953,6 +992,28 @@ mod tests {
             .save_note_content(NoteId::new(123), "x".to_owned(), String::new(), ts())
             .expect_err("missing note");
         assert!(matches!(error, Error::NoteNotFound));
+    }
+
+    #[test]
+    fn effort_report_counts_completed_pomos_per_task() {
+        let service = service();
+        let worked = service.create_task("worked", 2, ts()).expect("create");
+        service.start_task(worked.id(), ts()).expect("start");
+        service.advance_pomodoro(worked.id(), ts()).expect("one pomo");
+        service.complete_task(worked.id(), ts()).expect("complete");
+        let idle = service.create_task("idle", 1, ts()).expect("create idle");
+
+        let report = service.effort_by_task().expect("report");
+        let worked_row = report
+            .iter()
+            .find(|row| row.task().id() == worked.id())
+            .expect("worked row");
+        assert_eq!(worked_row.completed_pomos(), 1);
+        let idle_row = report
+            .iter()
+            .find(|row| row.task().id() == idle.id())
+            .expect("idle row");
+        assert_eq!(idle_row.completed_pomos(), 0);
     }
 
     #[test]
