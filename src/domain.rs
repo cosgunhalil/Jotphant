@@ -16,7 +16,7 @@ pub mod task;
 pub mod wikilink;
 
 pub use bank::{BankTransaction, BankTransactionType};
-pub use config::AppConfig;
+pub use config::{AppConfig, ThemeChoice};
 pub use ids::{BankTransactionId, NoteId, PomodoroSessionId, TaskId};
 pub use note::Note;
 pub use pomodoro::PomodoroConfig;

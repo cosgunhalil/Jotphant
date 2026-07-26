@@ -5,7 +5,7 @@
 
 use chrono::{DateTime, Utc};
 use jotphant::app::TaskService;
-use jotphant::domain::{AppConfig, PomodoroConfig, TaskStatus};
+use jotphant::domain::{AppConfig, PomodoroConfig, TaskStatus, ThemeChoice};
 use jotphant::storage::{SqliteStore, config};
 use tempfile::tempdir;
 
@@ -61,7 +61,9 @@ fn notes_tags_and_jots_persist_across_reopen() {
             .set_note_tags(note.id(), &["work".to_owned(), "urgent".to_owned()])
             .expect("tag");
         let task = service.create_task("work", 1, ts()).expect("create task");
-        service.quick_jot(task.id(), "remember this", ts()).expect("jot");
+        service
+            .quick_jot(task.id(), "remember this", ts())
+            .expect("jot");
         (note.id(), task.id())
     };
 
@@ -73,7 +75,10 @@ fn notes_tags_and_jots_persist_across_reopen() {
             .iter()
             .any(|note| note.id() == note_id)
     );
-    assert_eq!(service.note_tags(note_id).expect("tags"), ["urgent", "work"]);
+    assert_eq!(
+        service.note_tags(note_id).expect("tags"),
+        ["urgent", "work"]
+    );
     let jots = service.task_notes(task_id).expect("jots");
     assert_eq!(jots.len(), 1);
     assert_eq!(jots[0].body_markdown(), "remember this");
@@ -91,7 +96,11 @@ fn config_round_trips_on_disk() {
     assert!(path.exists());
 
     // A customized config survives a save/reload.
-    let custom = AppConfig::new(PomodoroConfig::new(50 * 60, 10 * 60, 20 * 60, 3, false, true), 8);
+    let custom = AppConfig::new(
+        PomodoroConfig::new(50 * 60, 10 * 60, 20 * 60, 3, false, true),
+        8,
+        ThemeChoice::Dark,
+    );
     config::save(&path, &custom).expect("save");
     assert_eq!(config::load_or_create(&path).expect("reload"), custom);
 }

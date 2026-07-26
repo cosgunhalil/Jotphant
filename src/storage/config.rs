@@ -9,7 +9,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::config::AppConfig;
+use crate::domain::config::{AppConfig, ThemeChoice};
 use crate::domain::pomodoro::PomodoroConfig;
 use crate::domain::session::TimerPhase;
 
@@ -32,6 +32,43 @@ pub enum ConfigError {
 struct ConfigDto {
     pomodoro: PomodoroDto,
     rewards: RewardsDto,
+    ui: UiDto,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct UiDto {
+    theme: ThemeDto,
+}
+
+impl Default for UiDto {
+    fn default() -> Self {
+        Self {
+            theme: ThemeDto::Light,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ThemeDto {
+    Light,
+    Dark,
+}
+
+impl ThemeDto {
+    fn into_domain(self) -> ThemeChoice {
+        match self {
+            Self::Light => ThemeChoice::Light,
+            Self::Dark => ThemeChoice::Dark,
+        }
+    }
+
+    fn from_domain(theme: ThemeChoice) -> Self {
+        match theme {
+            ThemeChoice::Light => Self::Light,
+            ThemeChoice::Dark => Self::Dark,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -82,12 +119,16 @@ impl ConfigDto {
                 self.pomodoro.auto_start_focus,
             ),
             self.rewards.leisure_minutes_per_pomo,
+            self.ui.theme.into_domain(),
         )
     }
 
     fn from_domain(config: &AppConfig) -> Self {
         let pomodoro = config.pomodoro();
         Self {
+            ui: UiDto {
+                theme: ThemeDto::from_domain(config.theme()),
+            },
             pomodoro: PomodoroDto {
                 focus_minutes: pomodoro.duration_seconds(TimerPhase::Focus) / 60,
                 short_break_minutes: pomodoro.duration_seconds(TimerPhase::ShortBreak) / 60,
@@ -162,10 +203,24 @@ mod tests {
         let config = AppConfig::new(
             PomodoroConfig::new(50 * 60, 10 * 60, 20 * 60, 3, false, true),
             8,
+            ThemeChoice::Dark,
         );
         let text = to_toml(&config).expect("serialize");
         let parsed = parse(&text).expect("parse");
         assert_eq!(parsed, config);
+    }
+
+    #[test]
+    fn theme_defaults_to_light_when_ui_section_is_missing() {
+        // A pre-theme config file has no [ui] section.
+        let parsed = parse("[rewards]\nleisure_minutes_per_pomo = 9\n").expect("parse");
+        assert_eq!(parsed.theme(), ThemeChoice::Light);
+    }
+
+    #[test]
+    fn theme_parses_from_the_ui_section() {
+        let parsed = parse("[ui]\ntheme = \"dark\"\n").expect("parse");
+        assert_eq!(parsed.theme(), ThemeChoice::Dark);
     }
 
     #[test]

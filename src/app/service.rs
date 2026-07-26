@@ -303,7 +303,9 @@ where
         now: DateTime<Utc>,
     ) -> Result<Task, Error> {
         // Ensure the source exists before linking to it.
-        self.store.get_task(from_task_id)?.ok_or(Error::TaskNotFound)?;
+        self.store
+            .get_task(from_task_id)?
+            .ok_or(Error::TaskNotFound)?;
         let mut task = self.store.create_task(title, estimated_pomos, now)?;
         task.set_linked_from(Some(from_task_id));
         self.store.update_task(&task)?;
@@ -634,6 +636,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::config::ThemeChoice;
     use crate::domain::pomodoro::PomodoroConfig;
     use crate::storage::SqliteStore;
 
@@ -999,7 +1002,9 @@ mod tests {
         let service = service();
         let worked = service.create_task("worked", 2, ts()).expect("create");
         service.start_task(worked.id(), ts()).expect("start");
-        service.advance_pomodoro(worked.id(), ts()).expect("one pomo");
+        service
+            .advance_pomodoro(worked.id(), ts())
+            .expect("one pomo");
         service.complete_task(worked.id(), ts()).expect("complete");
         let idle = service.create_task("idle", 1, ts()).expect("create idle");
 
@@ -1020,7 +1025,9 @@ mod tests {
     fn task_estimate_can_be_edited() {
         let service = service();
         let task = service.create_task("plan", 2, ts()).expect("create");
-        let updated = service.set_task_estimate(task.id(), 5).expect("set estimate");
+        let updated = service
+            .set_task_estimate(task.id(), 5)
+            .expect("set estimate");
         assert_eq!(updated.estimated_pomos(), 5);
 
         let reloaded = service
@@ -1183,6 +1190,7 @@ mod tests {
         let config = AppConfig::new(
             PomodoroConfig::new(25 * 60, 5 * 60, 15 * 60, 4, false, false),
             5,
+            ThemeChoice::default(),
         );
         let service = service_with(config);
         let task = service.create_task("manual", 4, ts()).expect("create");
@@ -1212,7 +1220,11 @@ mod tests {
         let mut service = service();
         assert_eq!(service.leisure_minutes_per_pomo(), 5);
 
-        service.set_config(AppConfig::new(PomodoroConfig::default(), 10));
+        service.set_config(AppConfig::new(
+            PomodoroConfig::default(),
+            10,
+            ThemeChoice::default(),
+        ));
         assert_eq!(service.leisure_minutes_per_pomo(), 10);
     }
 

@@ -295,9 +295,7 @@ mod tests {
         store
             .create_note("second", "2", Some(task.id()), ts())
             .expect("n2");
-        store
-            .create_note("unrelated", "x", None, ts())
-            .expect("n3");
+        store.create_note("unrelated", "x", None, ts()).expect("n3");
 
         let notes = store.list_notes_for_task(task.id()).expect("list");
         assert_eq!(notes.len(), 2);

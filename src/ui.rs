@@ -4,6 +4,8 @@
 //! (`Todo · In Progress · Paused · Done`; `Cancelled` is hidden). The view caches what it
 //! displays and refreshes after each action rather than querying storage every frame.
 
+pub mod theme;
+
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -12,7 +14,7 @@ use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
 use crate::app::{TaskEffort, TaskService};
-use crate::domain::config::AppConfig;
+use crate::domain::config::{AppConfig, ThemeChoice};
 use crate::domain::ids::{NoteId, TaskId};
 use crate::domain::note::Note;
 use crate::domain::pomodoro::PomodoroConfig;
@@ -40,6 +42,7 @@ struct SettingsDraft {
     auto_start_break: bool,
     auto_start_focus: bool,
     leisure_minutes_per_pomo: u32,
+    theme: ThemeChoice,
 }
 
 impl SettingsDraft {
@@ -53,6 +56,7 @@ impl SettingsDraft {
             auto_start_break: pomodoro.should_auto_start(TimerPhase::ShortBreak),
             auto_start_focus: pomodoro.should_auto_start(TimerPhase::Focus),
             leisure_minutes_per_pomo: config.leisure_minutes_per_pomo(),
+            theme: config.theme(),
         }
     }
 
@@ -67,6 +71,7 @@ impl SettingsDraft {
                 self.auto_start_focus,
             ),
             self.leisure_minutes_per_pomo,
+            self.theme,
         )
     }
 }
@@ -143,6 +148,7 @@ pub struct JotphantApp<S> {
     quick_jot_text: String,
     task_notes: Vec<Note>,
     report: Vec<TaskEffort>,
+    applied_theme: Option<ThemeChoice>,
 }
 
 impl<S> JotphantApp<S>
@@ -187,6 +193,7 @@ where
             quick_jot_text: String::new(),
             task_notes: Vec::new(),
             report: Vec::new(),
+            applied_theme: None,
         };
         // Catch up any timer that elapsed while the app was closed, then load state.
         if let Err(error) = app.service.reconcile_active_timer(Utc::now()) {
@@ -269,7 +276,9 @@ where
     /// Opens a task's detail: loads its description, estimate, and jots.
     fn open_task(&mut self, id: TaskId) {
         let task = self.tasks.iter().find(|task| task.id() == id);
-        self.detail_description = task.map(|task| task.description().to_owned()).unwrap_or_default();
+        self.detail_description = task
+            .map(|task| task.description().to_owned())
+            .unwrap_or_default();
         self.detail_estimate = task.map_or(0, Task::estimated_pomos);
         self.task_notes = self.service.task_notes(id).unwrap_or_default();
         self.quick_jot_text.clear();
@@ -466,6 +475,13 @@ where
     S: TaskRepository + SessionRepository + BankRepository + NoteRepository + Transactional,
 {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // Apply the configured theme on the first frame and whenever it changes.
+        let theme_choice = self.service.config().theme();
+        if self.applied_theme != Some(theme_choice) {
+            ui.ctx().set_visuals(theme::visuals(theme_choice));
+            self.applied_theme = Some(theme_choice);
+        }
+
         let now = Utc::now();
         self.tick(now);
 
@@ -602,10 +618,7 @@ where
                         self.report.iter().map(TaskEffort::completed_pomos).sum();
                     let minutes = self.balance.max(0) * i64::from(self.leisure_per_pomo);
                     ui.label(format!("Total measured effort: {total_effort} pomos"));
-                    ui.label(format!(
-                        "Banked: {} pomos (≈ {minutes} min)",
-                        self.balance
-                    ));
+                    ui.label(format!("Banked: {} pomos (≈ {minutes} min)", self.balance));
                     ui.separator();
                     egui::ScrollArea::vertical()
                         .id_salt("history")
@@ -705,8 +718,7 @@ where
                         .desired_width(f32::INFINITY)
                         .hint_text("write a jot and press Enter"),
                 );
-                let submitted =
-                    jot.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let submitted = jot.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 if submitted || ui.button("Jot").clicked() {
                     action = Some(Action::QuickJot(selected_id));
                 }
@@ -720,9 +732,7 @@ where
                                 egui::Frame::group(ui.style()).show(ui, |ui| {
                                     ui.set_width(ui.available_width());
                                     ui.label(note.body_markdown());
-                                    ui.weak(
-                                        note.created_at().format("%Y-%m-%d %H:%M").to_string(),
-                                    );
+                                    ui.weak(note.created_at().format("%Y-%m-%d %H:%M").to_string());
                                 });
                             }
                         });
@@ -760,9 +770,7 @@ where
                         }
                         TaskStatus::Done | TaskStatus::Cancelled => {}
                     }
-                    if task.status().is_terminal()
-                        && ui.button("Create follow-up").clicked()
-                    {
+                    if task.status().is_terminal() && ui.button("Create follow-up").clicked() {
                         action = Some(Action::CreateFollowUp(selected_id));
                     }
                     if ui.button("Close").clicked() {
@@ -807,6 +815,12 @@ where
                             egui::DragValue::new(&mut draft.leisure_minutes_per_pomo)
                                 .range(0..=120),
                         );
+                        ui.end_row();
+                        ui.label("Theme");
+                        ui.horizontal(|ui| {
+                            ui.selectable_value(&mut draft.theme, ThemeChoice::Light, "Light");
+                            ui.selectable_value(&mut draft.theme, ThemeChoice::Dark, "Dark");
+                        });
                         ui.end_row();
                     });
                 ui.separator();

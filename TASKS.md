@@ -68,3 +68,15 @@ click-to-open card detail, task descriptions.
 - [x] 4.1 Desktop notification + sound at phase transitions — *adds `notify-rust` (toast sound; no audio crate)*
 - [x] 4.2 History / reports view
 - [x] 4.3 Linked follow-up tasks + editable estimate
+
+## M5 — UX & Juice (Trello-level fluency)
+
+Warm theme, fluent drag-and-drop with ghost card, Enter-first inputs, comment-grade
+jots, subtle motion.
+
+- [x] 5.1 Warm theme (light + dark) + toggle in Settings, persisted in config
+- [ ] 5.2 Drag rework: whole-card drag with click threshold, ghost card, drop-target
+      highlight, invalid-drop feedback
+- [ ] 5.3 Enter-first creation: task add submits on Enter, inputs keep focus
+- [ ] 5.4 Jots as comments: relative timestamps, Markdown, edit/delete, focus retention
+- [ ] 5.5 Subtle motion pass: hover lift, smooth transitions, pomo-complete flash
