@@ -647,10 +647,18 @@ where
 
                                     if *status == TaskStatus::Todo {
                                         ui.separator();
-                                        ui.add(
+                                        let new_task = ui.add(
                                             egui::TextEdit::singleline(&mut self.new_title)
-                                                .hint_text("New task title"),
+                                                .hint_text("New task title (Enter to add)"),
                                         );
+                                        // Enter submits and keeps focus for rapid entry.
+                                        if new_task.lost_focus()
+                                            && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                                            && !self.new_title.trim().is_empty()
+                                        {
+                                            action = Some(Action::Create);
+                                            new_task.request_focus();
+                                        }
                                         ui.horizontal(|ui| {
                                             ui.label("est");
                                             ui.add(
@@ -814,6 +822,10 @@ where
                         .hint_text("write a jot and press Enter"),
                 );
                 let submitted = jot.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if submitted {
+                    // Keep focus so several jots can be chained without re-clicking.
+                    jot.request_focus();
+                }
                 if submitted || ui.button("Jot").clicked() {
                     action = Some(Action::QuickJot(selected_id));
                 }
@@ -1011,10 +1023,16 @@ fn notes_view(
         {
             let ui = &mut cols[1];
             if let Some(note_id) = selected_note {
-                ui.add(egui::TextEdit::singleline(note_title).hint_text("Title"));
-                ui.add(
+                let title_edit = ui.add(egui::TextEdit::singleline(note_title).hint_text("Title"));
+                let tags_edit = ui.add(
                     egui::TextEdit::singleline(note_tags_input).hint_text("tags, comma separated"),
                 );
+                // Enter in the title or tags field saves the note.
+                if (title_edit.lost_focus() || tags_edit.lost_focus())
+                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                {
+                    *action = Some(Action::SaveNote(note_id));
+                }
                 ui.horizontal(|ui| {
                     if ui.button("Save").clicked() {
                         *action = Some(Action::SaveNote(note_id));

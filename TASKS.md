@@ -77,6 +77,6 @@ jots, subtle motion.
 - [x] 5.1 Warm theme (light + dark) + toggle in Settings, persisted in config
 - [x] 5.2 Drag rework: whole-card drag with click threshold, ghost card, drop-target
       highlight, invalid-drop feedback
-- [ ] 5.3 Enter-first creation: task add submits on Enter, inputs keep focus
+- [x] 5.3 Enter-first creation: task add submits on Enter, inputs keep focus
 - [ ] 5.4 Jots as comments: relative timestamps, Markdown, edit/delete, focus retention
 - [ ] 5.5 Subtle motion pass: hover lift, smooth transitions, pomo-complete flash
