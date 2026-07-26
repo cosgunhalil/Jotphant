@@ -75,7 +75,7 @@ Warm theme, fluent drag-and-drop with ghost card, Enter-first inputs, comment-gr
 jots, subtle motion.
 
 - [x] 5.1 Warm theme (light + dark) + toggle in Settings, persisted in config
-- [ ] 5.2 Drag rework: whole-card drag with click threshold, ghost card, drop-target
+- [x] 5.2 Drag rework: whole-card drag with click threshold, ghost card, drop-target
       highlight, invalid-drop feedback
 - [ ] 5.3 Enter-first creation: task add submits on Enter, inputs keep focus
 - [ ] 5.4 Jots as comments: relative timestamps, Markdown, edit/delete, focus retention

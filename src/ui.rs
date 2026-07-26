@@ -110,6 +110,9 @@ enum Action {
     ArchiveNote(NoteId, bool),
     SearchNotes,
     QuickJot(TaskId),
+    BeginDrag(TaskId),
+    DropOn(TaskStatus),
+    CancelDrag,
 }
 
 /// Persists the configuration; injected by the composition root so the UI need not know
@@ -149,6 +152,7 @@ pub struct JotphantApp<S> {
     task_notes: Vec<Note>,
     report: Vec<TaskEffort>,
     applied_theme: Option<ThemeChoice>,
+    dragging: Option<TaskId>,
 }
 
 impl<S> JotphantApp<S>
@@ -194,6 +198,7 @@ where
             task_notes: Vec::new(),
             report: Vec::new(),
             applied_theme: None,
+            dragging: None,
         };
         // Catch up any timer that elapsed while the app was closed, then load state.
         if let Err(error) = app.service.reconcile_active_timer(Utc::now()) {
@@ -326,6 +331,22 @@ where
         let result = match action {
             Action::Open(id) => {
                 self.open_task(id);
+                return;
+            }
+            Action::BeginDrag(id) => {
+                self.dragging = Some(id);
+                return;
+            }
+            Action::CancelDrag => {
+                self.dragging = None;
+                return;
+            }
+            Action::DropOn(status) => {
+                if let Some(drag_id) = self.dragging.take()
+                    && let Some(drop_action) = resolve_drop(status, drag_id, &self.tasks)
+                {
+                    self.handle(drop_action, now);
+                }
                 return;
             }
             Action::SetEstimate(id) => {
@@ -533,48 +554,95 @@ where
                                 .id_salt(*title)
                                 .auto_shrink([false, false])
                                 .show(ui, |ui| {
-                                    let (_, dropped) = ui.dnd_drop_zone::<TaskId, ()>(
-                                        egui::Frame::default(),
-                                        |ui| {
-                                            ui.set_min_height(60.0);
-                                            let mut any = false;
-                                            for task in
-                                                self.tasks.iter().filter(|t| t.status() == *status)
-                                            {
-                                                any = true;
-                                                let completed = self
-                                                    .progress
-                                                    .get(&task.id())
-                                                    .copied()
-                                                    .unwrap_or(0);
-                                                let is_active = Some(task.id())
-                                                    == self.active_task.as_ref().map(Task::id);
-                                                let session = if is_active {
-                                                    self.active_session.as_ref()
-                                                } else {
-                                                    None
-                                                };
-                                                let pending = if is_active && session.is_none() {
-                                                    self.pending_phase
-                                                } else {
-                                                    None
-                                                };
-                                                if let Some(card_action) = card_ui(
-                                                    ui, task, completed, session, pending, now,
-                                                ) {
-                                                    action = Some(card_action);
-                                                }
+                                    let zone = egui::Frame::default().show(ui, |ui| {
+                                        ui.set_min_height(60.0);
+                                        ui.set_width(ui.available_width());
+                                        let mut any = false;
+                                        for task in
+                                            self.tasks.iter().filter(|t| t.status() == *status)
+                                        {
+                                            any = true;
+                                            let completed =
+                                                self.progress.get(&task.id()).copied().unwrap_or(0);
+                                            let is_active = Some(task.id())
+                                                == self.active_task.as_ref().map(Task::id);
+                                            let session = if is_active {
+                                                self.active_session.as_ref()
+                                            } else {
+                                                None
+                                            };
+                                            let pending = if is_active && session.is_none() {
+                                                self.pending_phase
+                                            } else {
+                                                None
+                                            };
+                                            // The dragged card stays in place, dimmed;
+                                            // its ghost follows the cursor.
+                                            let card_action = if self.dragging == Some(task.id()) {
+                                                ui.scope(|ui| {
+                                                    ui.multiply_opacity(0.35);
+                                                    card_ui(
+                                                        ui, task, completed, session, pending, now,
+                                                    )
+                                                })
+                                                .inner
+                                            } else {
+                                                card_ui(ui, task, completed, session, pending, now)
+                                            };
+                                            if let Some(card_action) = card_action {
+                                                action = Some(card_action);
                                             }
-                                            if !any {
-                                                ui.weak("Drop here");
-                                            }
-                                        },
-                                    );
-                                    if let Some(dropped_id) = dropped
-                                        && let Some(dropped_action) =
-                                            resolve_drop(*status, *dropped_id, &self.tasks)
-                                    {
-                                        action = Some(dropped_action);
+                                        }
+                                        if !any {
+                                            ui.weak("Drop here");
+                                        }
+                                    });
+
+                                    // Drop-target feedback while a card is being dragged.
+                                    if let Some(drag_id) = self.dragging {
+                                        let rect = zone.response.rect;
+                                        let valid =
+                                            resolve_drop(*status, drag_id, &self.tasks).is_some();
+                                        let hovered = ui
+                                            .ctx()
+                                            .pointer_hover_pos()
+                                            .is_some_and(|pos| rect.contains(pos));
+                                        let corner = egui::CornerRadius::same(8);
+                                        let accent = ui.visuals().selection.stroke.color;
+                                        let painter = ui.painter();
+                                        if !valid {
+                                            // Gray out columns that cannot accept the card.
+                                            painter.rect_filled(
+                                                rect,
+                                                corner,
+                                                ui.visuals().panel_fill.gamma_multiply(0.55),
+                                            );
+                                        } else if hovered {
+                                            painter.rect_filled(
+                                                rect,
+                                                corner,
+                                                accent.gamma_multiply(0.08),
+                                            );
+                                            painter.rect_stroke(
+                                                rect,
+                                                corner,
+                                                egui::Stroke::new(2.0, accent),
+                                                egui::StrokeKind::Inside,
+                                            );
+                                        } else {
+                                            painter.rect_stroke(
+                                                rect,
+                                                corner,
+                                                egui::Stroke::new(1.0, accent.gamma_multiply(0.4)),
+                                                egui::StrokeKind::Inside,
+                                            );
+                                        }
+                                        if valid
+                                            && hovered
+                                            && ui.ctx().input(|i| i.pointer.any_released())
+                                        {
+                                            action = Some(Action::DropOn(*status));
+                                        }
                                     }
 
                                     if *status == TaskStatus::Todo {
@@ -646,6 +714,33 @@ where
                 }
             }
         });
+
+        // Trello-style ghost: a floating copy of the dragged card follows the cursor.
+        if let Some(drag_id) = self.dragging
+            && let Some(task) = self.tasks.iter().find(|task| task.id() == drag_id)
+            && let Some(pos) = ui.ctx().pointer_hover_pos()
+        {
+            let completed = self.progress.get(&drag_id).copied().unwrap_or(0);
+            egui::Area::new(egui::Id::new("drag_ghost"))
+                .order(egui::Order::Tooltip)
+                .fixed_pos(pos + egui::vec2(14.0, 10.0))
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.set_max_width(180.0);
+                        ui.strong(task.title());
+                        ui.weak(format!("{completed}/{} pomos", task.estimated_pomos()));
+                    });
+                });
+            ui.ctx()
+                .output_mut(|output| output.cursor_icon = egui::CursorIcon::Grabbing);
+        }
+        // Releasing anywhere that is not a valid drop target cancels the drag.
+        if self.dragging.is_some()
+            && ui.ctx().input(|i| i.pointer.any_released())
+            && !matches!(action, Some(Action::DropOn(_)))
+        {
+            action = Some(Action::CancelDrag);
+        }
 
         if let Some(selected_id) = self.selected {
             let ctx = ui.ctx().clone();
@@ -982,17 +1077,7 @@ fn card_ui(
     let mut action = None;
     let inner = egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.horizontal(|ui| {
-            // Only this handle is draggable, so clicking the rest of the card can open it.
-            let handle_id = egui::Id::new(("card_drag", task.id().value()));
-            ui.dnd_drag_source(handle_id, task.id(), |ui| {
-                ui.label(":::");
-            })
-            .response
-            .on_hover_cursor(egui::CursorIcon::Grab)
-            .on_hover_text("Drag to move");
-            ui.strong(task.title());
-        });
+        ui.strong(task.title());
         ui.label(format!("{completed}/{} pomos", task.estimated_pomos()));
 
         match task.status() {
@@ -1048,13 +1133,18 @@ fn card_ui(
         }
     });
 
-    // Clicking anywhere on the card body (not a button or the handle) opens its detail.
+    // The whole card senses both: a quick click opens the detail, while moving the
+    // pointer past egui's drag threshold starts a drag instead (they are exclusive).
     let card = inner
         .response
-        .interact(egui::Sense::click())
+        .interact(egui::Sense::click_and_drag())
         .on_hover_cursor(egui::CursorIcon::PointingHand);
-    if card.clicked() && action.is_none() {
-        action = Some(Action::Open(task.id()));
+    if action.is_none() {
+        if card.drag_started() {
+            action = Some(Action::BeginDrag(task.id()));
+        } else if card.clicked() {
+            action = Some(Action::Open(task.id()));
+        }
     }
     action
 }
