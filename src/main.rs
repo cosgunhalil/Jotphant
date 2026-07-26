@@ -4,6 +4,10 @@
 //! task service, and hands the service to the egui app. This is the single place that
 //! constructs concrete infrastructure (see `CODING_STANDARDS.md` §5).
 
+// In release builds, run as a GUI app without spawning a console window; debug builds
+// keep the console for log output.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::error::Error;
 use std::fs;
 use std::path::PathBuf;

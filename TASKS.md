@@ -81,3 +81,9 @@ jots, subtle motion.
 - [x] 5.4 Jots as comments: relative timestamps, Markdown, edit/delete, focus retention;
       task jots hidden from the Notes tab
 - [x] 5.5 Subtle motion pass: hover lift, smooth transitions, pomo-complete flash
+
+## M6 — Release pipeline
+
+- [x] R1 Release-build polish: no console window in release, `[profile.release]` (LTO, strip)
+- [ ] R2 `ci.yml`: fmt-check + clippy + tests on every push/PR (Windows runner)
+- [ ] R3 `release.yml`: `v*` tag → build, zip, publish GitHub Release + release walkthrough
