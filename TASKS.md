@@ -88,3 +88,9 @@ jots, subtle motion.
 - [x] R2 `ci.yml`: fmt-check + clippy + tests on every push/PR (Windows runner)
 - [x] R3 `release.yml`: `v*` tag → build, zip, publish GitHub Release + release walkthrough
 - [x] R4 Automated versioning: release-plz Release PR (fix→patch, feat→minor), RELEASING.md rules
+
+## Docs & wrap-up
+
+- [x] D1 README.md, CONTRIBUTING.md, and auto-changelog scaffold (CHANGELOG.md)
+- [x] D2 MIT license (LICENSE file + Cargo.toml metadata + README section)
+- [ ] D3 Refresh the local CLAUDE.md (still describes the empty scaffold)
