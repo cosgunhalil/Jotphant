@@ -21,6 +21,7 @@ use crate::domain::repository::{
 };
 use crate::domain::session::{PomodoroSession, TimerPhase};
 use crate::domain::task::{Task, TaskStatus};
+use crate::notifier::Notifier;
 
 /// Which top-level screen is showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,6 +112,7 @@ type SaveConfig = Box<dyn Fn(&AppConfig) -> Result<(), String>>;
 pub struct JotphantApp<S> {
     service: TaskService<S>,
     save_config: SaveConfig,
+    notifier: Box<dyn Notifier>,
     new_title: String,
     new_estimate: u32,
     tasks: Vec<Task>,
@@ -142,12 +144,17 @@ impl<S> JotphantApp<S>
 where
     S: TaskRepository + SessionRepository + BankRepository + NoteRepository + Transactional,
 {
-    /// Builds the app over an injected service and config-save function, loading the
-    /// initial state.
-    pub fn new(service: TaskService<S>, save_config: SaveConfig) -> Self {
+    /// Builds the app over an injected service, config-save function, and notifier,
+    /// loading the initial state.
+    pub fn new(
+        service: TaskService<S>,
+        save_config: SaveConfig,
+        notifier: Box<dyn Notifier>,
+    ) -> Self {
         let mut app = Self {
             service,
             save_config,
+            notifier,
             new_title: String::new(),
             new_estimate: 1,
             tasks: Vec::new(),
@@ -261,17 +268,22 @@ where
         self.note_backlinks = self.service.note_backlinks(id).unwrap_or_default();
     }
 
-    /// Auto-completes the active focus pomo once its countdown reaches zero.
+    /// Auto-advances the Pomodoro cycle once a phase's countdown reaches zero, and
+    /// notifies the user of the transition.
     fn tick(&mut self, now: DateTime<Utc>) {
         let expired = match (&self.active_task, &self.active_session) {
-            (Some(task), Some(session)) if session.is_expired(now) => Some(task.id()),
+            (Some(task), Some(session)) if session.is_expired(now) => {
+                Some((task.id(), session.phase()))
+            }
             _ => None,
         };
-        if let Some(task_id) = expired {
+        if let Some((task_id, ended_phase)) = expired {
             if let Err(error) = self.service.advance_pomodoro(task_id, now) {
                 self.status = Some(error.to_string());
             }
             self.refresh();
+            let started = self.active_session.as_ref().map(PomodoroSession::phase);
+            self.notifier.on_phase_transition(ended_phase, started);
         }
     }
 

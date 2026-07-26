@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use jotphant::app::TaskService;
 use jotphant::domain::AppConfig;
+use jotphant::notifier::DesktopNotifier;
 use jotphant::storage::{SqliteStore, config};
 use jotphant::ui::JotphantApp;
 
@@ -29,7 +30,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     eframe::run_native(
         "Jotphant",
         native_options,
-        Box::new(|_cc| Ok(Box::new(JotphantApp::new(service, save_config)))),
+        Box::new(|_cc| {
+            let notifier = Box::new(DesktopNotifier::new());
+            Ok(Box::new(JotphantApp::new(service, save_config, notifier)))
+        }),
     )?;
     Ok(())
 }
