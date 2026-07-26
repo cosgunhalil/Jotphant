@@ -22,3 +22,7 @@ warnings = "deny"
 
 [lints.clippy]
 all = "deny"
+
+[dev-dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+tempfile = "3.27.0"

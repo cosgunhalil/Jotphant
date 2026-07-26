@@ -89,3 +89,50 @@ pub fn migrate(conn: &Connection) -> Result<(), RepositoryError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user_version(conn: &Connection) -> i64 {
+        conn.pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("read user_version")
+    }
+
+    #[test]
+    fn migrates_a_fresh_database_to_current() {
+        let conn = Connection::open_in_memory().expect("open");
+        migrate(&conn).expect("migrate");
+        assert_eq!(user_version(&conn), SCHEMA_VERSION);
+        // All tables usable.
+        assert!(conn.prepare("SELECT description FROM tasks").is_ok());
+        assert!(conn.prepare("SELECT id FROM notes").is_ok());
+        assert!(conn.prepare("SELECT tag FROM note_tags").is_ok());
+    }
+
+    #[test]
+    fn upgrades_a_v1_database_to_current() {
+        let conn = Connection::open_in_memory().expect("open");
+        // Simulate a database created by an older (v1) build.
+        conn.execute_batch(CREATE_V1).expect("create v1");
+        conn.pragma_update(None, "user_version", 1_i64)
+            .expect("set version");
+        // A v1 database has no description column and no notes table.
+        assert!(conn.prepare("SELECT description FROM tasks").is_err());
+        assert!(conn.prepare("SELECT id FROM notes").is_err());
+
+        migrate(&conn).expect("upgrade");
+
+        assert_eq!(user_version(&conn), SCHEMA_VERSION);
+        assert!(conn.prepare("SELECT description FROM tasks").is_ok());
+        assert!(conn.prepare("SELECT id FROM notes").is_ok());
+    }
+
+    #[test]
+    fn migrate_is_idempotent() {
+        let conn = Connection::open_in_memory().expect("open");
+        migrate(&conn).expect("first");
+        migrate(&conn).expect("second");
+        assert_eq!(user_version(&conn), SCHEMA_VERSION);
+    }
+}
