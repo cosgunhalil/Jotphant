@@ -159,7 +159,13 @@ pub struct JotphantApp<S> {
     report: Vec<TaskEffort>,
     applied_theme: Option<ThemeChoice>,
     dragging: Option<TaskId>,
+    /// A brief celebratory highlight on a card whose pomo just completed:
+    /// the task and the ui-time the flash started.
+    flash: Option<(TaskId, f64)>,
 }
+
+/// How long the pomo-complete flash lasts, in seconds.
+const FLASH_SECONDS: f64 = 1.2;
 
 impl<S> JotphantApp<S>
 where
@@ -207,6 +213,7 @@ where
             report: Vec::new(),
             applied_theme: None,
             dragging: None,
+            flash: None,
         };
         // Catch up any timer that elapsed while the app was closed, then load state.
         if let Err(error) = app.service.reconcile_active_timer(Utc::now()) {
@@ -316,8 +323,9 @@ where
     }
 
     /// Auto-advances the Pomodoro cycle once a phase's countdown reaches zero, and
-    /// notifies the user of the transition.
-    fn tick(&mut self, now: DateTime<Utc>) {
+    /// notifies the user of the transition. `ui_time` is egui's clock, used to start the
+    /// completion flash.
+    fn tick(&mut self, now: DateTime<Utc>, ui_time: f64) {
         let expired = match (&self.active_task, &self.active_session) {
             (Some(task), Some(session)) if session.is_expired(now) => {
                 Some((task.id(), session.phase()))
@@ -331,6 +339,10 @@ where
             self.refresh();
             let started = self.active_session.as_ref().map(PomodoroSession::phase);
             self.notifier.on_phase_transition(ended_phase, started);
+            // Celebrate a completed focus pomo with a brief flash on its card.
+            if ended_phase == TimerPhase::Focus {
+                self.flash = Some((task_id, ui_time));
+            }
         }
     }
 
@@ -550,7 +562,17 @@ where
         }
 
         let now = Utc::now();
-        self.tick(now);
+        let ui_time = ui.ctx().input(|input| input.time);
+        self.tick(now, ui_time);
+
+        // Expire the pomo-complete flash, repainting while it plays.
+        if let Some((_, started)) = self.flash {
+            if ui_time - started >= FLASH_SECONDS {
+                self.flash = None;
+            } else {
+                ui.ctx().request_repaint();
+            }
+        }
 
         let mut action: Option<Action> = None;
         egui::CentralPanel::default_margins().show(ui, |ui| {
@@ -622,18 +644,31 @@ where
                                             } else {
                                                 None
                                             };
+                                            #[expect(
+                                                clippy::cast_possible_truncation,
+                                                reason = "flash progress is in [0, 1]"
+                                            )]
+                                            let flash = self.flash.and_then(|(id, started)| {
+                                                (id == task.id()).then(|| {
+                                                    ((ui_time - started) / FLASH_SECONDS) as f32
+                                                })
+                                            });
                                             // The dragged card stays in place, dimmed;
                                             // its ghost follows the cursor.
                                             let card_action = if self.dragging == Some(task.id()) {
                                                 ui.scope(|ui| {
                                                     ui.multiply_opacity(0.35);
                                                     card_ui(
-                                                        ui, task, completed, session, pending, now,
+                                                        ui, task, completed, session, pending,
+                                                        flash, now,
                                                     )
                                                 })
                                                 .inner
                                             } else {
-                                                card_ui(ui, task, completed, session, pending, now)
+                                                card_ui(
+                                                    ui, task, completed, session, pending, flash,
+                                                    now,
+                                                )
                                             };
                                             if let Some(card_action) = card_action {
                                                 action = Some(card_action);
@@ -1169,6 +1204,7 @@ fn card_ui(
     completed: u32,
     active_session: Option<&PomodoroSession>,
     pending: Option<TimerPhase>,
+    flash: Option<f32>,
     now: DateTime<Utc>,
 ) -> Option<Action> {
     let mut action = None;
@@ -1242,6 +1278,29 @@ fn card_ui(
         } else if card.clicked() {
             action = Some(Action::Open(task.id()));
         }
+    }
+
+    let corner = egui::CornerRadius::same(6);
+    let accent = ui.visuals().selection.stroke.color;
+    // Hover lift: an accent glow that eases in and out.
+    let lift = ui.ctx().animate_bool(card.id.with("lift"), card.hovered());
+    if lift > 0.0 {
+        ui.painter().rect_stroke(
+            card.rect,
+            corner,
+            egui::Stroke::new(1.0 + lift, accent.gamma_multiply(0.5 * lift)),
+            egui::StrokeKind::Outside,
+        );
+    }
+    // Pomo-complete flash: a warm highlight fading out over the card.
+    if let Some(progress) = flash
+        && progress < 1.0
+    {
+        ui.painter().rect_filled(
+            card.rect,
+            corner,
+            accent.gamma_multiply(0.25 * (1.0 - progress)),
+        );
     }
     action
 }

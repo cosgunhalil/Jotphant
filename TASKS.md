@@ -80,4 +80,4 @@ jots, subtle motion.
 - [x] 5.3 Enter-first creation: task add submits on Enter, inputs keep focus
 - [x] 5.4 Jots as comments: relative timestamps, Markdown, edit/delete, focus retention;
       task jots hidden from the Notes tab
-- [ ] 5.5 Subtle motion pass: hover lift, smooth transitions, pomo-complete flash
+- [x] 5.5 Subtle motion pass: hover lift, smooth transitions, pomo-complete flash
