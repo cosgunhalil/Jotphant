@@ -1,0 +1,38 @@
+# Continuous integration: enforce the coding standards on every push and PR.
+# Formatting must match rustfmt defaults, clippy must be clean (warnings are
+# denied via the [lints] table in Cargo.toml), and the full test suite must pass.
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: fmt + clippy + tests
+    # Windows is Jotphant's target platform, so CI matches it.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked
+
+      - name: Tests
+        run: cargo test --locked
