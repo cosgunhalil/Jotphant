@@ -1,0 +1,19 @@
+# release-plz configuration (https://release-plz.dev).
+#
+# Jotphant is a desktop application, not a library: nothing is published to
+# crates.io, and the GitHub Release itself (with the Windows binary attached) is
+# created by .github/workflows/release.yml when the version tag appears.
+# release-plz's job is only to compute the next version from the Conventional
+# Commits since the last release, maintain the changelog, keep the Release PR up
+# to date, and create the v* tag when that PR merges.
+
+[workspace]
+# No crates.io publishing (binary application).
+publish = false
+# Only the tag; release.yml creates the GitHub Release with the built artifact.
+git_release_enable = false
+# API-compatibility checks are meaningless for a binary.
+semver_check = false
+# Maintain CHANGELOG.md in the Release PR.
+changelog_update = true
+git_tag_name = "v{{ version }}"

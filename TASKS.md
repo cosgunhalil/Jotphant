@@ -87,3 +87,4 @@ jots, subtle motion.
 - [x] R1 Release-build polish: no console window in release, `[profile.release]` (LTO, strip)
 - [x] R2 `ci.yml`: fmt-check + clippy + tests on every push/PR (Windows runner)
 - [x] R3 `release.yml`: `v*` tag → build, zip, publish GitHub Release + release walkthrough
+- [x] R4 Automated versioning: release-plz Release PR (fix→patch, feat→minor), RELEASING.md rules
