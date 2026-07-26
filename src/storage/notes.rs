@@ -85,6 +85,17 @@ impl NoteRepository for SqliteStore {
         Ok(notes)
     }
 
+    fn list_notes_for_task(&self, task_id: TaskId) -> Result<Vec<Note>, RepositoryError> {
+        let sql = format!("SELECT {NOTE_COLUMNS} FROM notes WHERE task_id = ?1 ORDER BY id DESC");
+        let mut stmt = self.connection().prepare(&sql)?;
+        let mut rows = stmt.query(params![task_id.value()])?;
+        let mut notes = Vec::new();
+        while let Some(row) = rows.next()? {
+            notes.push(row_to_note(row)?);
+        }
+        Ok(notes)
+    }
+
     fn update_note(&self, note: &Note) -> Result<(), RepositoryError> {
         let affected = self.connection().execute(
             "UPDATE notes
@@ -176,6 +187,7 @@ mod tests {
     use chrono::{DateTime, Utc};
 
     use super::*;
+    use crate::domain::repository::TaskRepository;
 
     fn ts() -> DateTime<Utc> {
         DateTime::from_timestamp(1_700_000_000, 0).expect("valid timestamp")
@@ -271,6 +283,26 @@ mod tests {
             .set_note_tags(note.id(), &["home".to_owned()])
             .expect("replace tags");
         assert_eq!(store.note_tags(note.id()).expect("tags"), ["home"]);
+    }
+
+    #[test]
+    fn lists_notes_for_a_task_newest_first() {
+        let store = store();
+        let task = store.create_task("t", 1, ts()).expect("task");
+        store
+            .create_note("first", "1", Some(task.id()), ts())
+            .expect("n1");
+        store
+            .create_note("second", "2", Some(task.id()), ts())
+            .expect("n2");
+        store
+            .create_note("unrelated", "x", None, ts())
+            .expect("n3");
+
+        let notes = store.list_notes_for_task(task.id()).expect("list");
+        assert_eq!(notes.len(), 2);
+        assert_eq!(notes[0].title(), "second");
+        assert_eq!(notes[1].title(), "first");
     }
 
     #[test]

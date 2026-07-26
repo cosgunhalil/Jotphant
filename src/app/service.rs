@@ -436,6 +436,15 @@ where
         Ok(note)
     }
 
+    /// Returns the notes attached to a task (its jots), newest first.
+    ///
+    /// # Errors
+    /// Returns a storage error if the query fails.
+    pub fn task_notes(&self, task_id: TaskId) -> Result<Vec<Note>, Error> {
+        let notes = self.store.list_notes_for_task(task_id)?;
+        Ok(notes)
+    }
+
     /// Returns the notes that link to the given note (its backlinks).
     ///
     /// # Errors
@@ -891,6 +900,19 @@ mod tests {
                 .any(|candidate| candidate.id() == note.id()
                     && candidate.task_id() == Some(task.id()))
         );
+    }
+
+    #[test]
+    fn task_notes_lists_jots_newest_first() {
+        let service = service();
+        let task = service.create_task("work", 1, ts()).expect("task");
+        service.quick_jot(task.id(), "one", ts()).expect("jot one");
+        service.quick_jot(task.id(), "two", ts()).expect("jot two");
+
+        let notes = service.task_notes(task.id()).expect("notes");
+        assert_eq!(notes.len(), 2);
+        assert_eq!(notes[0].body_markdown(), "two");
+        assert_eq!(notes[1].body_markdown(), "one");
     }
 
     #[test]

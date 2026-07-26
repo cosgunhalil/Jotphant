@@ -145,6 +145,12 @@ pub trait NoteRepository {
     /// Returns [`RepositoryError`] if the query fails.
     fn search_notes(&self, query: &str) -> Result<Vec<Note>, RepositoryError>;
 
+    /// Lists the notes attached to a task, newest first.
+    ///
+    /// # Errors
+    /// Returns [`RepositoryError`] if the query fails.
+    fn list_notes_for_task(&self, task_id: TaskId) -> Result<Vec<Note>, RepositoryError>;
+
     /// Persists changes to an existing note.
     ///
     /// # Errors

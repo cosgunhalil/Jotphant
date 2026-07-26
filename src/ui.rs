@@ -135,6 +135,7 @@ pub struct JotphantApp<S> {
     note_backlinks: Vec<Note>,
     md_cache: CommonMarkCache,
     quick_jot_text: String,
+    task_notes: Vec<Note>,
 }
 
 impl<S> JotphantApp<S>
@@ -171,6 +172,7 @@ where
             note_backlinks: Vec::new(),
             md_cache: CommonMarkCache::default(),
             quick_jot_text: String::new(),
+            task_notes: Vec::new(),
         };
         // Catch up any timer that elapsed while the app was closed, then load state.
         if let Err(error) = app.service.reconcile_active_timer(Utc::now()) {
@@ -283,6 +285,8 @@ where
                     .find(|task| task.id() == id)
                     .map(|task| task.description().to_owned())
                     .unwrap_or_default();
+                self.task_notes = self.service.task_notes(id).unwrap_or_default();
+                self.quick_jot_text.clear();
                 self.selected = Some(id);
                 return;
             }
@@ -313,7 +317,10 @@ where
                 let text = self.quick_jot_text.trim().to_owned();
                 if !text.is_empty() {
                     match self.service.quick_jot(id, &text, now) {
-                        Ok(_) => self.quick_jot_text.clear(),
+                        Ok(_) => {
+                            self.quick_jot_text.clear();
+                            self.task_notes = self.service.task_notes(id).unwrap_or_default();
+                        }
                         Err(error) => self.status = Some(error.to_string()),
                     }
                 }
@@ -582,16 +589,33 @@ where
                 }
 
                 ui.separator();
-                ui.label("Quick note");
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.quick_jot_text)
-                            .desired_width(f32::INFINITY)
-                            .hint_text("jot a note for this task"),
-                    );
-                });
-                if ui.button("Jot").clicked() {
+                ui.label("Jots");
+                let jot = ui.add(
+                    egui::TextEdit::singleline(&mut self.quick_jot_text)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("write a jot and press Enter"),
+                );
+                let submitted =
+                    jot.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if submitted || ui.button("Jot").clicked() {
                     action = Some(Action::QuickJot(selected_id));
+                }
+                if !self.task_notes.is_empty() {
+                    egui::ScrollArea::vertical()
+                        .id_salt("task_jots")
+                        .max_height(200.0)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            for note in &self.task_notes {
+                                egui::Frame::group(ui.style()).show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.label(note.body_markdown());
+                                    ui.weak(
+                                        note.created_at().format("%Y-%m-%d %H:%M").to_string(),
+                                    );
+                                });
+                            }
+                        });
                 }
 
                 ui.separator();
