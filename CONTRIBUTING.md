@@ -60,6 +60,27 @@ bump. See [RELEASING.md](RELEASING.md).
 - Tests must be deterministic: time is always passed in, never read from the
   wall clock inside domain logic.
 
+## Adding a language
+
+Translations are YAML catalogs under `locales/`, compiled into the binary. To add
+one (say Portuguese, `pt`):
+
+1. Copy `locales/en.yaml` to `locales/pt.yaml` and translate **only the values**
+   — the keys and the `{placeholders}` inside values must stay exactly as they
+   are (placeholders are replaced with numbers/text at runtime).
+2. In `src/domain/config.rs`, add a `Portuguese` variant to `Language`: extend
+   `ALL`, `code()` (`"pt"`, must match the file name), and `native_name()`
+   (`"Português"`).
+3. In `src/localization.rs`, add the catalog to `catalog_source`:
+   `Language::Portuguese => include_str!("../locales/pt.yaml")`.
+4. Run `cargo test` — a completeness test verifies your catalog has exactly the
+   same key set as English and names anything missing or extra.
+
+That's it: the language appears in Settings and is auto-selected for matching
+system locales. English is the reference catalog — when you add a *new string*
+to the app, add it to `en.yaml` first and to every other catalog (the test will
+remind you).
+
 ## Pull requests
 
 - Keep PRs small and focused — one logical change per PR.

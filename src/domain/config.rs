@@ -24,17 +24,31 @@ pub enum Language {
     /// English (the reference catalog every other language is checked against).
     #[default]
     English,
+    /// Turkish.
+    Turkish,
+    /// Spanish.
+    Spanish,
+    /// Azerbaijani.
+    Azerbaijani,
 }
 
 impl Language {
     /// Every selectable language, in picker order.
-    pub const ALL: [Self; 1] = [Self::English];
+    pub const ALL: [Self; 4] = [
+        Self::English,
+        Self::Turkish,
+        Self::Spanish,
+        Self::Azerbaijani,
+    ];
 
     /// The two-letter language code, matching the catalog file name.
     #[must_use]
     pub fn code(self) -> &'static str {
         match self {
             Self::English => "en",
+            Self::Turkish => "tr",
+            Self::Spanish => "es",
+            Self::Azerbaijani => "az",
         }
     }
 
@@ -43,6 +57,9 @@ impl Language {
     pub fn native_name(self) -> &'static str {
         match self {
             Self::English => "English",
+            Self::Turkish => "Türkçe",
+            Self::Spanish => "Español",
+            Self::Azerbaijani => "Azərbaycanca",
         }
     }
 

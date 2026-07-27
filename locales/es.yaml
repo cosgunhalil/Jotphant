@@ -1,0 +1,121 @@
+# Español — Spanish.
+
+app:
+  bank_balance: "Banco: {pomos} pomos (≈ {minutes} min)"
+  settings: "Ajustes"
+  view_board: "Tablero"
+  view_notes: "Notas"
+  view_history: "Historial"
+
+status:
+  todo: "Por hacer"
+  in_progress: "En curso"
+  paused: "En pausa"
+  done: "Hecho"
+  cancelled: "Cancelado"
+
+phase:
+  focus: "Enfoque"
+  short_break: "Descanso corto"
+  long_break: "Descanso largo"
+
+board:
+  drop_here: "Suelta aquí"
+  new_task_hint: "Título de la nueva tarea (Enter para añadir)"
+  estimate_short: "est"
+  add: "Añadir"
+
+card:
+  pomo_progress: "{completed}/{estimated} pomos"
+  start: "Iniciar"
+  pause: "Pausar"
+  resume: "Reanudar"
+  complete: "Completar"
+  cancel: "Cancelar"
+  complete_pomo: "Completar pomo"
+  skip_break: "Saltar descanso"
+  start_phase: "Iniciar {phase}"
+  done_marker: "hecho"
+
+detail:
+  status: "Estado: {status}"
+  progress: "Progreso: {completed} pomos completados"
+  estimate: "Estimación"
+  set: "Fijar"
+  follow_up_of: "Continuación de:"
+  create_follow_up: "Crear continuación"
+  description: "Descripción"
+  save_description: "Guardar descripción"
+  jots: "Apuntes"
+  jot_hint: "escribe un apunte y pulsa Enter"
+  jot: "Apuntar"
+  edit: "Editar"
+  delete: "Eliminar"
+  save: "Guardar"
+  cancel: "Cancelar"
+  edited_marker: "(editado)"
+  close: "Cerrar"
+
+time:
+  just_now: "ahora mismo"
+  minutes_ago: "hace {n} min"
+  hours_ago: "hace {n} h"
+  yesterday: "ayer"
+  days_ago: "hace {n} días"
+
+notes:
+  new_note: "Nueva nota"
+  search_hint: "Buscar"
+  untitled: "Sin título"
+  archived_marker: "(archivada)"
+  title_hint: "Título"
+  tags_hint: "etiquetas, separadas por comas"
+  save: "Guardar"
+  preview: "Vista previa"
+  pin: "Fijar"
+  unpin: "Desfijar"
+  archive: "Archivar"
+  unarchive: "Desarchivar"
+  backlinks: "Retroenlaces:"
+  empty_hint: "Selecciona o crea una nota."
+
+history:
+  total_effort: "Esfuerzo total medido: {pomos} pomos"
+  banked: "En el banco: {pomos} pomos (≈ {minutes} min)"
+  column_task: "Tarea"
+  column_status: "Estado"
+  column_pomos: "Pomos"
+
+settings:
+  title: "Ajustes"
+  focus_minutes: "Enfoque (min)"
+  short_break_minutes: "Descanso corto (min)"
+  long_break_minutes: "Descanso largo (min)"
+  long_break_after: "Descanso largo cada"
+  auto_start_breaks: "Iniciar descansos automáticamente"
+  auto_start_focus: "Iniciar enfoque automáticamente"
+  leisure_per_pomo: "Min de ocio por pomo"
+  theme: "Tema"
+  theme_light: "Claro"
+  theme_dark: "Oscuro"
+  language: "Idioma"
+  save: "Guardar"
+  cancel: "Cancelar"
+
+notify:
+  focus_complete: "Enfoque completado"
+  time_for_break: "Hora de descansar."
+  start_next_break: "Inicia tu próximo descanso."
+  break_over: "Fin del descanso"
+  back_to_focus: "De vuelta al enfoque."
+  start_next_focus: "Inicia tu próxima sesión de enfoque."
+
+error:
+  task_not_found: "tarea no encontrada"
+  note_not_found: "nota no encontrada"
+  task_not_active: "la tarea no está activa"
+  no_running_session: "la tarea no tiene una sesión en curso"
+  reward_overflow: "la recompensa es demasiado grande"
+  invalid_transition: "ese cambio de estado no está permitido"
+  storage: "error de almacenamiento: {message}"
+  title_required: "el título de la tarea es obligatorio"

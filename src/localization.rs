@@ -17,6 +17,9 @@ const EN: &str = include_str!("../locales/en.yaml");
 fn catalog_source(language: Language) -> &'static str {
     match language {
         Language::English => EN,
+        Language::Turkish => include_str!("../locales/tr.yaml"),
+        Language::Spanish => include_str!("../locales/es.yaml"),
+        Language::Azerbaijani => include_str!("../locales/az.yaml"),
     }
 }
 
@@ -173,6 +176,22 @@ mod tests {
     fn locale_tags_map_to_supported_languages() {
         assert_eq!(Language::from_locale("en-US"), Some(Language::English));
         assert_eq!(Language::from_locale("en"), Some(Language::English));
+        assert_eq!(Language::from_locale("tr-TR"), Some(Language::Turkish));
+        assert_eq!(Language::from_locale("es-MX"), Some(Language::Spanish));
+        assert_eq!(
+            Language::from_locale("az-Latn-AZ"),
+            Some(Language::Azerbaijani)
+        );
         assert_eq!(Language::from_locale("xx-YY"), None);
+    }
+
+    #[test]
+    fn non_english_lookups_use_their_catalog() {
+        let turkish = Localizer::new(Language::Turkish);
+        assert_eq!(turkish.t("board.add"), "Ekle");
+        let spanish = Localizer::new(Language::Spanish);
+        assert_eq!(spanish.t("board.add"), "Añadir");
+        let azerbaijani = Localizer::new(Language::Azerbaijani);
+        assert_eq!(azerbaijani.t("board.add"), "Əlavə et");
     }
 }

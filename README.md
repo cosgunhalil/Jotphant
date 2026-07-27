@@ -26,6 +26,10 @@ it is up to you.
   tags, `[[wiki-links]]` with backlinks, pin and archive.
 - **Warm themes** — cream-and-amber light or charcoal-and-amber dark, switchable
   in Settings.
+- **Speaks your language** — English, Türkçe, Español, Azərbaycanca; picked up
+  from your system locale on first run, switchable in Settings. Adding a
+  language is a single YAML file — see
+  [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-language).
 - **Desktop notifications** at every phase transition, and a history view with
   per-task measured effort.
 
