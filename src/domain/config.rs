@@ -15,6 +15,48 @@ pub enum ThemeChoice {
     Dark,
 }
 
+/// The user's display-language preference.
+///
+/// Adding a language means adding a variant here plus a catalog file under
+/// `locales/` — see `CONTRIBUTING.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Language {
+    /// English (the reference catalog every other language is checked against).
+    #[default]
+    English,
+}
+
+impl Language {
+    /// Every selectable language, in picker order.
+    pub const ALL: [Self; 1] = [Self::English];
+
+    /// The two-letter language code, matching the catalog file name.
+    #[must_use]
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::English => "en",
+        }
+    }
+
+    /// The language's name in itself, for the picker.
+    #[must_use]
+    pub fn native_name(self) -> &'static str {
+        match self {
+            Self::English => "English",
+        }
+    }
+
+    /// Matches a system locale tag (e.g. `en-US`, `tr-TR`) to a supported
+    /// language by its primary subtag.
+    #[must_use]
+    pub fn from_locale(locale: &str) -> Option<Self> {
+        let primary = locale.split(['-', '_']).next().unwrap_or(locale);
+        Self::ALL
+            .into_iter()
+            .find(|language| language.code().eq_ignore_ascii_case(primary))
+    }
+}
+
 /// All configurable settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppConfig {

@@ -6,6 +6,7 @@
 
 pub mod app;
 pub mod domain;
+pub mod localization;
 pub mod notifier;
 pub mod storage;
 pub mod ui;

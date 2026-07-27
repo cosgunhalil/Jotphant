@@ -1,0 +1,126 @@
+# English — the reference catalog.
+#
+# Every other locale file must define exactly this set of keys (a test enforces
+# it). Nested sections become dotted keys at load time: `board.add` below is
+# looked up as t("board.add"). Placeholders use {curly_braces} and are replaced
+# by Localizer::t_args.
+
+app:
+  bank_balance: "Bank: {pomos} pomos (≈ {minutes} min)"
+  settings: "Settings"
+  view_board: "Board"
+  view_notes: "Notes"
+  view_history: "History"
+
+status:
+  todo: "Todo"
+  in_progress: "In Progress"
+  paused: "Paused"
+  done: "Done"
+  cancelled: "Cancelled"
+
+phase:
+  focus: "Focus"
+  short_break: "Short break"
+  long_break: "Long break"
+
+board:
+  drop_here: "Drop here"
+  new_task_hint: "New task title (Enter to add)"
+  estimate_short: "est"
+  add: "Add"
+
+card:
+  pomo_progress: "{completed}/{estimated} pomos"
+  start: "Start"
+  pause: "Pause"
+  resume: "Resume"
+  complete: "Complete"
+  cancel: "Cancel"
+  complete_pomo: "Complete pomo"
+  skip_break: "Skip break"
+  start_phase: "Start {phase}"
+  done_marker: "done"
+
+detail:
+  status: "Status: {status}"
+  progress: "Progress: {completed} pomos done"
+  estimate: "Estimate"
+  set: "Set"
+  follow_up_of: "Follow-up of:"
+  create_follow_up: "Create follow-up"
+  description: "Description"
+  save_description: "Save description"
+  jots: "Jots"
+  jot_hint: "write a jot and press Enter"
+  jot: "Jot"
+  edit: "Edit"
+  delete: "Delete"
+  save: "Save"
+  cancel: "Cancel"
+  edited_marker: "(edited)"
+  close: "Close"
+
+time:
+  just_now: "just now"
+  minutes_ago: "{n} min ago"
+  hours_ago: "{n} h ago"
+  yesterday: "yesterday"
+  days_ago: "{n} days ago"
+
+notes:
+  new_note: "New note"
+  search_hint: "Search"
+  untitled: "Untitled"
+  archived_marker: "(archived)"
+  title_hint: "Title"
+  tags_hint: "tags, comma separated"
+  save: "Save"
+  preview: "Preview"
+  pin: "Pin"
+  unpin: "Unpin"
+  archive: "Archive"
+  unarchive: "Unarchive"
+  backlinks: "Backlinks:"
+  empty_hint: "Select or create a note."
+
+history:
+  total_effort: "Total measured effort: {pomos} pomos"
+  banked: "Banked: {pomos} pomos (≈ {minutes} min)"
+  column_task: "Task"
+  column_status: "Status"
+  column_pomos: "Pomos"
+
+settings:
+  title: "Settings"
+  focus_minutes: "Focus (min)"
+  short_break_minutes: "Short break (min)"
+  long_break_minutes: "Long break (min)"
+  long_break_after: "Long break after"
+  auto_start_breaks: "Auto-start breaks"
+  auto_start_focus: "Auto-start focus"
+  leisure_per_pomo: "Leisure min / pomo"
+  theme: "Theme"
+  theme_light: "Light"
+  theme_dark: "Dark"
+  language: "Language"
+  save: "Save"
+  cancel: "Cancel"
+
+notify:
+  focus_complete: "Focus complete"
+  time_for_break: "Time for a break."
+  start_next_break: "Start your next break."
+  break_over: "Break over"
+  back_to_focus: "Back to focus."
+  start_next_focus: "Start your next focus session."
+
+error:
+  task_not_found: "task not found"
+  note_not_found: "note not found"
+  task_not_active: "task is not active"
+  no_running_session: "no running session for the task"
+  reward_overflow: "reward amount is too large"
+  invalid_transition: "that status change is not allowed"
+  storage: "storage error: {message}"
+  title_required: "task title is required"
