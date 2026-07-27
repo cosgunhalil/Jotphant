@@ -14,7 +14,7 @@ use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
 use crate::app::{TaskEffort, TaskService};
-use crate::domain::config::{AppConfig, ThemeChoice};
+use crate::domain::config::{AppConfig, Language, ThemeChoice};
 use crate::domain::ids::{NoteId, TaskId};
 use crate::domain::note::Note;
 use crate::domain::pomodoro::PomodoroConfig;
@@ -23,6 +23,7 @@ use crate::domain::repository::{
 };
 use crate::domain::session::{PomodoroSession, TimerPhase};
 use crate::domain::task::{Task, TaskStatus};
+use crate::localization::Localizer;
 use crate::notifier::Notifier;
 
 /// Which top-level screen is showing.
@@ -43,6 +44,7 @@ struct SettingsDraft {
     auto_start_focus: bool,
     leisure_minutes_per_pomo: u32,
     theme: ThemeChoice,
+    language: Language,
 }
 
 impl SettingsDraft {
@@ -57,6 +59,7 @@ impl SettingsDraft {
             auto_start_focus: pomodoro.should_auto_start(TimerPhase::Focus),
             leisure_minutes_per_pomo: config.leisure_minutes_per_pomo(),
             theme: config.theme(),
+            language: config.language(),
         }
     }
 
@@ -72,17 +75,29 @@ impl SettingsDraft {
             ),
             self.leisure_minutes_per_pomo,
             self.theme,
+            self.language,
         )
     }
 }
 
 /// The columns shown on the board, in order. `Cancelled` is intentionally omitted.
-const COLUMNS: [(TaskStatus, &str); 4] = [
-    (TaskStatus::Todo, "Todo"),
-    (TaskStatus::InProgress, "In Progress"),
-    (TaskStatus::Paused, "Paused"),
-    (TaskStatus::Done, "Done"),
+const COLUMNS: [TaskStatus; 4] = [
+    TaskStatus::Todo,
+    TaskStatus::InProgress,
+    TaskStatus::Paused,
+    TaskStatus::Done,
 ];
+
+/// The translation key for a task status name.
+fn status_key(status: TaskStatus) -> &'static str {
+    match status {
+        TaskStatus::Todo => "status.todo",
+        TaskStatus::InProgress => "status.in_progress",
+        TaskStatus::Paused => "status.paused",
+        TaskStatus::Done => "status.done",
+        TaskStatus::Cancelled => "status.cancelled",
+    }
+}
 
 /// A user action captured during rendering and applied afterwards, so rendering never
 /// borrows `self` while a mutating service call runs.
@@ -158,6 +173,8 @@ pub struct JotphantApp<S> {
     editing_jot_text: String,
     report: Vec<TaskEffort>,
     applied_theme: Option<ThemeChoice>,
+    localizer: Localizer,
+    applied_language: Language,
     dragging: Option<TaskId>,
     /// A brief celebratory highlight on a card whose pomo just completed:
     /// the task and the ui-time the flash started.
@@ -178,10 +195,13 @@ where
         save_config: SaveConfig,
         notifier: Box<dyn Notifier>,
     ) -> Self {
+        let language = service.config().language();
         let mut app = Self {
             service,
             save_config,
             notifier,
+            localizer: Localizer::new(language),
+            applied_language: language,
             new_title: String::new(),
             new_estimate: 1,
             tasks: Vec::new(),
@@ -217,7 +237,7 @@ where
         };
         // Catch up any timer that elapsed while the app was closed, then load state.
         if let Err(error) = app.service.reconcile_active_timer(Utc::now()) {
-            app.status = Some(error.to_string());
+            app.status = Some(error_message(&app.localizer, &error));
         }
         app.refresh();
         app
@@ -227,7 +247,7 @@ where
     fn refresh(&mut self) {
         match self.service.list_tasks() {
             Ok(tasks) => self.tasks = tasks,
-            Err(error) => self.status = Some(error.to_string()),
+            Err(error) => self.status = Some(error_message(&self.localizer, &error)),
         }
         let mut progress = HashMap::new();
         for task in &self.tasks {
@@ -235,19 +255,19 @@ where
                 Ok(count) => {
                     progress.insert(task.id(), count);
                 }
-                Err(error) => self.status = Some(error.to_string()),
+                Err(error) => self.status = Some(error_message(&self.localizer, &error)),
             }
         }
         self.progress = progress;
         match self.service.bank_balance() {
             Ok(balance) => self.balance = balance,
-            Err(error) => self.status = Some(error.to_string()),
+            Err(error) => self.status = Some(error_message(&self.localizer, &error)),
         }
         self.leisure_per_pomo = self.service.leisure_minutes_per_pomo();
         self.active_task = match self.service.active_task() {
             Ok(task) => task,
             Err(error) => {
-                self.status = Some(error.to_string());
+                self.status = Some(error_message(&self.localizer, &error));
                 None
             }
         };
@@ -256,7 +276,7 @@ where
             Some(id) => match self.service.running_session(id) {
                 Ok(session) => session,
                 Err(error) => {
-                    self.status = Some(error.to_string());
+                    self.status = Some(error_message(&self.localizer, &error));
                     None
                 }
             },
@@ -275,7 +295,7 @@ where
     fn refresh_report(&mut self) {
         match self.service.effort_by_task() {
             Ok(report) => self.report = report,
-            Err(error) => self.status = Some(error.to_string()),
+            Err(error) => self.status = Some(error_message(&self.localizer, &error)),
         }
     }
 
@@ -289,7 +309,7 @@ where
         };
         match result {
             Ok(notes) => self.notes = notes,
-            Err(error) => self.status = Some(error.to_string()),
+            Err(error) => self.status = Some(error_message(&self.localizer, &error)),
         }
     }
 
@@ -315,7 +335,7 @@ where
         self.note_tags_input = match self.service.note_tags(id) {
             Ok(tags) => tags.join(", "),
             Err(error) => {
-                self.status = Some(error.to_string());
+                self.status = Some(error_message(&self.localizer, &error));
                 String::new()
             }
         };
@@ -334,11 +354,12 @@ where
         };
         if let Some((task_id, ended_phase)) = expired {
             if let Err(error) = self.service.advance_pomodoro(task_id, now) {
-                self.status = Some(error.to_string());
+                self.status = Some(error_message(&self.localizer, &error));
             }
             self.refresh();
             let started = self.active_session.as_ref().map(PomodoroSession::phase);
-            self.notifier.on_phase_transition(ended_phase, started);
+            let (summary, body) = notification_message(&self.localizer, ended_phase, started);
+            self.notifier.notify(&summary, &body);
             // Celebrate a completed focus pomo with a brief flash on its card.
             if ended_phase == TimerPhase::Focus {
                 self.flash = Some((task_id, ui_time));
@@ -371,7 +392,7 @@ where
             }
             Action::SetEstimate(id) => {
                 if let Err(error) = self.service.set_task_estimate(id, self.detail_estimate) {
-                    self.status = Some(error.to_string());
+                    self.status = Some(error_message(&self.localizer, &error));
                 }
                 self.refresh();
                 return;
@@ -385,7 +406,7 @@ where
                             self.refresh();
                             self.open_task(new_task.id());
                         }
-                        Err(error) => self.status = Some(error.to_string()),
+                        Err(error) => self.status = Some(error_message(&self.localizer, &error)),
                     }
                 }
                 return;
@@ -423,7 +444,7 @@ where
                             self.quick_jot_text.clear();
                             self.task_notes = self.service.task_notes(id).unwrap_or_default();
                         }
-                        Err(error) => self.status = Some(error.to_string()),
+                        Err(error) => self.status = Some(error_message(&self.localizer, &error)),
                     }
                 }
                 return;
@@ -447,7 +468,7 @@ where
                 if !text.is_empty()
                     && let Err(error) = self.service.edit_jot(id, &text, now)
                 {
-                    self.status = Some(error.to_string());
+                    self.status = Some(error_message(&self.localizer, &error));
                 }
                 self.editing_jot = None;
                 if let Some(task_id) = self.selected {
@@ -459,7 +480,7 @@ where
                 // "Delete" archives the jot: it leaves the comment list but stays
                 // recoverable in storage.
                 if let Err(error) = self.service.set_note_archived(id, true, now) {
-                    self.status = Some(error.to_string());
+                    self.status = Some(error_message(&self.localizer, &error));
                 }
                 if let Some(task_id) = self.selected {
                     self.task_notes = self.service.task_notes(task_id).unwrap_or_default();
@@ -467,12 +488,13 @@ where
                 return;
             }
             Action::NewNote => {
-                match self.service.create_note("Untitled", "", now) {
+                let untitled = self.localizer.t("notes.untitled").to_owned();
+                match self.service.create_note(&untitled, "", now) {
                     Ok(note) => {
                         self.refresh_notes();
                         self.select_note(note.id());
                     }
-                    Err(error) => self.status = Some(error.to_string()),
+                    Err(error) => self.status = Some(error_message(&self.localizer, &error)),
                 }
                 return;
             }
@@ -487,7 +509,7 @@ where
                     .save_note_content(id, self.note_title.clone(), self.note_body.clone(), now)
                     .and_then(|_| self.service.set_note_tags(id, &tags));
                 if let Err(error) = saved {
-                    self.status = Some(error.to_string());
+                    self.status = Some(error_message(&self.localizer, &error));
                 }
                 self.refresh_notes();
                 self.note_backlinks = self.service.note_backlinks(id).unwrap_or_default();
@@ -495,14 +517,14 @@ where
             }
             Action::PinNote(id, pinned) => {
                 if let Err(error) = self.service.set_note_pinned(id, pinned, now) {
-                    self.status = Some(error.to_string());
+                    self.status = Some(error_message(&self.localizer, &error));
                 }
                 self.refresh_notes();
                 return;
             }
             Action::ArchiveNote(id, archived) => {
                 if let Err(error) = self.service.set_note_archived(id, archived, now) {
-                    self.status = Some(error.to_string());
+                    self.status = Some(error_message(&self.localizer, &error));
                 }
                 self.refresh_notes();
                 return;
@@ -521,7 +543,7 @@ where
             Action::Create => {
                 let title = self.new_title.trim().to_owned();
                 if title.is_empty() {
-                    self.status = Some("task title is required".to_owned());
+                    self.status = Some(self.localizer.t("error.title_required").to_owned());
                     return;
                 }
                 let created = self
@@ -544,7 +566,9 @@ where
                 .set_task_description(id, self.detail_description.clone())
                 .map(|_| ()),
         };
-        self.status = result.err().map(|error| error.to_string());
+        self.status = result
+            .err()
+            .map(|error| error_message(&self.localizer, &error));
         self.refresh();
     }
 }
@@ -559,6 +583,12 @@ where
         if self.applied_theme != Some(theme_choice) {
             ui.ctx().set_visuals(theme::visuals(theme_choice));
             self.applied_theme = Some(theme_choice);
+        }
+        // Rebuild the localizer when the configured language changes.
+        let language = self.service.config().language();
+        if self.applied_language != language {
+            self.localizer = Localizer::new(language);
+            self.applied_language = language;
         }
 
         let now = Utc::now();
@@ -580,25 +610,34 @@ where
                 ui.heading("Jotphant");
                 ui.separator();
                 let minutes = self.balance.max(0) * i64::from(self.leisure_per_pomo);
-                ui.label(format!("Bank: {} pomos (≈ {minutes} min)", self.balance));
-                if ui.button("Settings").clicked() {
+                ui.label(self.localizer.t_args(
+                    "app.bank_balance",
+                    &[
+                        ("pomos", self.balance.to_string()),
+                        ("minutes", minutes.to_string()),
+                    ],
+                ));
+                if ui.button(self.localizer.t("app.settings")).clicked() {
                     action = Some(Action::OpenSettings);
                 }
                 ui.separator();
                 if ui
-                    .selectable_label(self.view == View::Board, "Board")
+                    .selectable_label(self.view == View::Board, self.localizer.t("app.view_board"))
                     .clicked()
                 {
                     action = Some(Action::SwitchView(View::Board));
                 }
                 if ui
-                    .selectable_label(self.view == View::Notes, "Notes")
+                    .selectable_label(self.view == View::Notes, self.localizer.t("app.view_notes"))
                     .clicked()
                 {
                     action = Some(Action::SwitchView(View::Notes));
                 }
                 if ui
-                    .selectable_label(self.view == View::History, "History")
+                    .selectable_label(
+                        self.view == View::History,
+                        self.localizer.t("app.view_history"),
+                    )
                     .clicked()
                 {
                     action = Some(Action::SwitchView(View::History));
@@ -612,14 +651,15 @@ where
             match self.view {
                 View::Board => {
                     ui.columns(COLUMNS.len(), |columns| {
-                        for (index, (status, title)) in COLUMNS.iter().enumerate() {
+                        for (index, status) in COLUMNS.iter().enumerate() {
                             let ui = &mut columns[index];
                             let count = self.tasks.iter().filter(|t| t.status() == *status).count();
+                            let title = self.localizer.t(status_key(*status));
                             ui.strong(format!("{title}  ({count})"));
                             ui.separator();
 
                             egui::ScrollArea::vertical()
-                                .id_salt(*title)
+                                .id_salt(status_key(*status))
                                 .auto_shrink([false, false])
                                 .show(ui, |ui| {
                                     let zone = egui::Frame::default().show(ui, |ui| {
@@ -659,14 +699,26 @@ where
                                                 ui.scope(|ui| {
                                                     ui.multiply_opacity(0.35);
                                                     card_ui(
-                                                        ui, task, completed, session, pending,
-                                                        flash, now,
+                                                        ui,
+                                                        &self.localizer,
+                                                        task,
+                                                        completed,
+                                                        session,
+                                                        pending,
+                                                        flash,
+                                                        now,
                                                     )
                                                 })
                                                 .inner
                                             } else {
                                                 card_ui(
-                                                    ui, task, completed, session, pending, flash,
+                                                    ui,
+                                                    &self.localizer,
+                                                    task,
+                                                    completed,
+                                                    session,
+                                                    pending,
+                                                    flash,
                                                     now,
                                                 )
                                             };
@@ -675,7 +727,7 @@ where
                                             }
                                         }
                                         if !any {
-                                            ui.weak("Drop here");
+                                            ui.weak(self.localizer.t("board.drop_here"));
                                         }
                                     });
 
@@ -730,7 +782,7 @@ where
                                         ui.separator();
                                         let new_task = ui.add(
                                             egui::TextEdit::singleline(&mut self.new_title)
-                                                .hint_text("New task title (Enter to add)"),
+                                                .hint_text(self.localizer.t("board.new_task_hint")),
                                         );
                                         // Enter submits and keeps focus for rapid entry.
                                         if new_task.lost_focus()
@@ -741,12 +793,12 @@ where
                                             new_task.request_focus();
                                         }
                                         ui.horizontal(|ui| {
-                                            ui.label("est");
+                                            ui.label(self.localizer.t("board.estimate_short"));
                                             ui.add(
                                                 egui::DragValue::new(&mut self.new_estimate)
                                                     .range(0..=999),
                                             );
-                                            if ui.button("Add").clicked() {
+                                            if ui.button(self.localizer.t("board.add")).clicked() {
                                                 action = Some(Action::Create);
                                             }
                                         });
@@ -758,6 +810,7 @@ where
                 View::Notes => {
                     notes_view(
                         ui,
+                        &self.localizer,
                         &self.notes,
                         self.selected_note,
                         &self.note_backlinks,
@@ -774,8 +827,17 @@ where
                     let total_effort: u32 =
                         self.report.iter().map(TaskEffort::completed_pomos).sum();
                     let minutes = self.balance.max(0) * i64::from(self.leisure_per_pomo);
-                    ui.label(format!("Total measured effort: {total_effort} pomos"));
-                    ui.label(format!("Banked: {} pomos (≈ {minutes} min)", self.balance));
+                    ui.label(self.localizer.t_args(
+                        "history.total_effort",
+                        &[("pomos", total_effort.to_string())],
+                    ));
+                    ui.label(self.localizer.t_args(
+                        "history.banked",
+                        &[
+                            ("pomos", self.balance.to_string()),
+                            ("minutes", minutes.to_string()),
+                        ],
+                    ));
                     ui.separator();
                     egui::ScrollArea::vertical()
                         .id_salt("history")
@@ -785,16 +847,16 @@ where
                                 .num_columns(3)
                                 .striped(true)
                                 .show(ui, |ui| {
-                                    ui.strong("Task");
-                                    ui.strong("Status");
-                                    ui.strong("Pomos");
+                                    ui.strong(self.localizer.t("history.column_task"));
+                                    ui.strong(self.localizer.t("history.column_status"));
+                                    ui.strong(self.localizer.t("history.column_pomos"));
                                     ui.end_row();
                                     for row in self.report.iter().filter(|row| {
                                         row.completed_pomos() > 0
                                             || row.task().status().is_terminal()
                                     }) {
                                         ui.label(row.task().title());
-                                        ui.label(format!("{:?}", row.task().status()));
+                                        ui.label(self.localizer.t(status_key(row.task().status())));
                                         ui.label(row.completed_pomos().to_string());
                                         ui.end_row();
                                     }
@@ -817,7 +879,13 @@ where
                     egui::Frame::popup(ui.style()).show(ui, |ui| {
                         ui.set_max_width(180.0);
                         ui.strong(task.title());
-                        ui.weak(format!("{completed}/{} pomos", task.estimated_pomos()));
+                        ui.weak(self.localizer.t_args(
+                            "card.pomo_progress",
+                            &[
+                                ("completed", completed.to_string()),
+                                ("estimated", task.estimated_pomos().to_string()),
+                            ],
+                        ));
                     });
                 });
             ui.ctx()
@@ -841,13 +909,22 @@ where
                 };
 
                 ui.heading(task.title());
-                ui.label(format!("Status: {:?}", task.status()));
+                ui.label(self.localizer.t_args(
+                    "detail.status",
+                    &[(
+                        "status",
+                        self.localizer.t(status_key(task.status())).to_owned(),
+                    )],
+                ));
                 let completed = self.progress.get(&selected_id).copied().unwrap_or(0);
-                ui.label(format!("Progress: {completed} pomos done"));
+                ui.label(
+                    self.localizer
+                        .t_args("detail.progress", &[("completed", completed.to_string())]),
+                );
                 ui.horizontal(|ui| {
-                    ui.label("Estimate");
+                    ui.label(self.localizer.t("detail.estimate"));
                     ui.add(egui::DragValue::new(&mut self.detail_estimate).range(0..=999));
-                    if ui.button("Set").clicked() {
+                    if ui.button(self.localizer.t("detail.set")).clicked() {
                         action = Some(Action::SetEstimate(selected_id));
                     }
                 });
@@ -859,7 +936,7 @@ where
                         .map(|candidate| candidate.title().to_owned());
                     if let Some(title) = parent_title {
                         ui.horizontal(|ui| {
-                            ui.label("Follow-up of:");
+                            ui.label(self.localizer.t("detail.follow_up_of"));
                             if ui.link(title).clicked() {
                                 action = Some(Action::Open(parent_id));
                             }
@@ -871,43 +948,54 @@ where
                     if let Some(session) = self.active_session.as_ref() {
                         ui.label(format!(
                             "{} {}",
-                            phase_label(session.phase()),
+                            phase_label(&self.localizer, session.phase()),
                             format_mmss(session.remaining_seconds(now))
                         ));
-                        if ui.button(advance_label(session.phase())).clicked() {
+                        if ui
+                            .button(advance_label(&self.localizer, session.phase()))
+                            .clicked()
+                        {
                             action = Some(Action::Advance(selected_id));
                         }
                     } else if let Some(phase) = self.pending_phase
-                        && ui.button(format!("Start {}", phase_label(phase))).clicked()
+                        && ui
+                            .button(self.localizer.t_args(
+                                "card.start_phase",
+                                &[("phase", phase_label(&self.localizer, phase).to_owned())],
+                            ))
+                            .clicked()
                     {
                         action = Some(Action::StartNext(selected_id));
                     }
                 }
 
                 ui.separator();
-                ui.label("Description");
+                ui.label(self.localizer.t("detail.description"));
                 ui.add(
                     egui::TextEdit::multiline(&mut self.detail_description)
                         .desired_rows(4)
                         .desired_width(f32::INFINITY),
                 );
-                if ui.button("Save description").clicked() {
+                if ui
+                    .button(self.localizer.t("detail.save_description"))
+                    .clicked()
+                {
                     action = Some(Action::SaveDescription(selected_id));
                 }
 
                 ui.separator();
-                ui.label("Jots");
+                ui.label(self.localizer.t("detail.jots"));
                 let jot = ui.add(
                     egui::TextEdit::singleline(&mut self.quick_jot_text)
                         .desired_width(f32::INFINITY)
-                        .hint_text("write a jot and press Enter"),
+                        .hint_text(self.localizer.t("detail.jot_hint")),
                 );
                 let submitted = jot.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 if submitted {
                     // Keep focus so several jots can be chained without re-clicking.
                     jot.request_focus();
                 }
-                if submitted || ui.button("Jot").clicked() {
+                if submitted || ui.button(self.localizer.t("detail.jot")).clicked() {
                     action = Some(Action::QuickJot(selected_id));
                 }
                 if !self.task_notes.is_empty() {
@@ -927,10 +1015,17 @@ where
                                         let saved = edit.lost_focus()
                                             && ui.input(|i| i.key_pressed(egui::Key::Enter));
                                         ui.horizontal(|ui| {
-                                            if saved || ui.small_button("Save").clicked() {
+                                            if saved
+                                                || ui
+                                                    .small_button(self.localizer.t("detail.save"))
+                                                    .clicked()
+                                            {
                                                 action = Some(Action::SaveJotEdit(note.id()));
                                             }
-                                            if ui.small_button("Cancel").clicked() {
+                                            if ui
+                                                .small_button(self.localizer.t("detail.cancel"))
+                                                .clicked()
+                                            {
                                                 action = Some(Action::CancelJotEdit);
                                             }
                                         });
@@ -941,15 +1036,28 @@ where
                                             note.body_markdown(),
                                         );
                                         ui.horizontal(|ui| {
-                                            let mut stamp = relative_time(note.created_at(), now);
+                                            let mut stamp = relative_time(
+                                                &self.localizer,
+                                                note.created_at(),
+                                                now,
+                                            );
                                             if note.updated_at() != note.created_at() {
-                                                stamp.push_str(" (edited)");
+                                                stamp.push(' ');
+                                                stamp.push_str(
+                                                    self.localizer.t("detail.edited_marker"),
+                                                );
                                             }
                                             ui.weak(stamp);
-                                            if ui.small_button("Edit").clicked() {
+                                            if ui
+                                                .small_button(self.localizer.t("detail.edit"))
+                                                .clicked()
+                                            {
                                                 action = Some(Action::EditJot(note.id()));
                                             }
-                                            if ui.small_button("Delete").clicked() {
+                                            if ui
+                                                .small_button(self.localizer.t("detail.delete"))
+                                                .clicked()
+                                            {
                                                 action = Some(Action::DeleteJot(note.id()));
                                             }
                                         });
@@ -963,38 +1071,42 @@ where
                 ui.horizontal(|ui| {
                     match task.status() {
                         TaskStatus::Todo => {
-                            if ui.button("Start").clicked() {
+                            if ui.button(self.localizer.t("card.start")).clicked() {
                                 action = Some(Action::Start(selected_id));
                             }
                         }
                         TaskStatus::InProgress => {
-                            if ui.button("Pause").clicked() {
+                            if ui.button(self.localizer.t("card.pause")).clicked() {
                                 action = Some(Action::Pause(selected_id));
                             }
-                            if ui.button("Complete").clicked() {
+                            if ui.button(self.localizer.t("card.complete")).clicked() {
                                 action = Some(Action::CompleteTask(selected_id));
                             }
-                            if ui.button("Cancel").clicked() {
+                            if ui.button(self.localizer.t("card.cancel")).clicked() {
                                 action = Some(Action::Cancel(selected_id));
                             }
                         }
                         TaskStatus::Paused => {
-                            if ui.button("Resume").clicked() {
+                            if ui.button(self.localizer.t("card.resume")).clicked() {
                                 action = Some(Action::Start(selected_id));
                             }
-                            if ui.button("Complete").clicked() {
+                            if ui.button(self.localizer.t("card.complete")).clicked() {
                                 action = Some(Action::CompleteTask(selected_id));
                             }
-                            if ui.button("Cancel").clicked() {
+                            if ui.button(self.localizer.t("card.cancel")).clicked() {
                                 action = Some(Action::Cancel(selected_id));
                             }
                         }
                         TaskStatus::Done | TaskStatus::Cancelled => {}
                     }
-                    if task.status().is_terminal() && ui.button("Create follow-up").clicked() {
+                    if task.status().is_terminal()
+                        && ui
+                            .button(self.localizer.t("detail.create_follow_up"))
+                            .clicked()
+                    {
                         action = Some(Action::CreateFollowUp(selected_id));
                     }
-                    if ui.button("Close").clicked() {
+                    if ui.button(self.localizer.t("detail.close")).clicked() {
                         action = Some(Action::CloseDetail);
                     }
                 });
@@ -1009,47 +1121,68 @@ where
             let ctx = ui.ctx().clone();
             let response = egui::Modal::new(egui::Id::new("settings")).show(&ctx, |ui| {
                 ui.set_width(340.0);
-                ui.heading("Settings");
+                ui.heading(self.localizer.t("settings.title"));
                 egui::Grid::new("settings_grid")
                     .num_columns(2)
                     .show(ui, |ui| {
-                        ui.label("Focus (min)");
+                        ui.label(self.localizer.t("settings.focus_minutes"));
                         ui.add(egui::DragValue::new(&mut draft.focus_minutes).range(1..=180));
                         ui.end_row();
-                        ui.label("Short break (min)");
+                        ui.label(self.localizer.t("settings.short_break_minutes"));
                         ui.add(egui::DragValue::new(&mut draft.short_break_minutes).range(1..=60));
                         ui.end_row();
-                        ui.label("Long break (min)");
+                        ui.label(self.localizer.t("settings.long_break_minutes"));
                         ui.add(egui::DragValue::new(&mut draft.long_break_minutes).range(1..=120));
                         ui.end_row();
-                        ui.label("Long break after");
+                        ui.label(self.localizer.t("settings.long_break_after"));
                         ui.add(egui::DragValue::new(&mut draft.long_break_after).range(1..=12));
                         ui.end_row();
-                        ui.label("Auto-start breaks");
+                        ui.label(self.localizer.t("settings.auto_start_breaks"));
                         ui.checkbox(&mut draft.auto_start_break, "");
                         ui.end_row();
-                        ui.label("Auto-start focus");
+                        ui.label(self.localizer.t("settings.auto_start_focus"));
                         ui.checkbox(&mut draft.auto_start_focus, "");
                         ui.end_row();
-                        ui.label("Leisure min / pomo");
+                        ui.label(self.localizer.t("settings.leisure_per_pomo"));
                         ui.add(
                             egui::DragValue::new(&mut draft.leisure_minutes_per_pomo)
                                 .range(0..=120),
                         );
                         ui.end_row();
-                        ui.label("Theme");
+                        ui.label(self.localizer.t("settings.theme"));
                         ui.horizontal(|ui| {
-                            ui.selectable_value(&mut draft.theme, ThemeChoice::Light, "Light");
-                            ui.selectable_value(&mut draft.theme, ThemeChoice::Dark, "Dark");
+                            ui.selectable_value(
+                                &mut draft.theme,
+                                ThemeChoice::Light,
+                                self.localizer.t("settings.theme_light"),
+                            );
+                            ui.selectable_value(
+                                &mut draft.theme,
+                                ThemeChoice::Dark,
+                                self.localizer.t("settings.theme_dark"),
+                            );
                         });
+                        ui.end_row();
+                        ui.label(self.localizer.t("settings.language"));
+                        egui::ComboBox::from_id_salt("settings_language")
+                            .selected_text(draft.language.native_name())
+                            .show_ui(ui, |ui| {
+                                for language in Language::ALL {
+                                    ui.selectable_value(
+                                        &mut draft.language,
+                                        language,
+                                        language.native_name(),
+                                    );
+                                }
+                            });
                         ui.end_row();
                     });
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
+                    if ui.button(self.localizer.t("settings.save")).clicked() {
                         action = Some(Action::SaveSettings);
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(self.localizer.t("settings.cancel")).clicked() {
                         action = Some(Action::CloseSettings);
                     }
                 });
@@ -1086,6 +1219,7 @@ fn parse_tags(input: &str) -> Vec<String> {
 )]
 fn notes_view(
     ui: &mut egui::Ui,
+    localizer: &Localizer,
     notes: &[Note],
     selected_note: Option<NoteId>,
     note_backlinks: &[Note],
@@ -1101,11 +1235,14 @@ fn notes_view(
         {
             let ui = &mut cols[0];
             ui.horizontal(|ui| {
-                if ui.button("New note").clicked() {
+                if ui.button(localizer.t("notes.new_note")).clicked() {
                     *action = Some(Action::NewNote);
                 }
                 if ui
-                    .add(egui::TextEdit::singleline(note_search).hint_text("Search"))
+                    .add(
+                        egui::TextEdit::singleline(note_search)
+                            .hint_text(localizer.t("notes.search_hint")),
+                    )
                     .changed()
                 {
                     *action = Some(Action::SearchNotes);
@@ -1123,7 +1260,8 @@ fn notes_view(
                         }
                         label.push_str(note.title());
                         if note.archived() {
-                            label.push_str(" (archived)");
+                            label.push(' ');
+                            label.push_str(localizer.t("notes.archived_marker"));
                         }
                         if ui
                             .selectable_label(Some(note.id()) == selected_note, label)
@@ -1137,9 +1275,13 @@ fn notes_view(
         {
             let ui = &mut cols[1];
             if let Some(note_id) = selected_note {
-                let title_edit = ui.add(egui::TextEdit::singleline(note_title).hint_text("Title"));
+                let title_edit = ui.add(
+                    egui::TextEdit::singleline(note_title)
+                        .hint_text(localizer.t("notes.title_hint")),
+                );
                 let tags_edit = ui.add(
-                    egui::TextEdit::singleline(note_tags_input).hint_text("tags, comma separated"),
+                    egui::TextEdit::singleline(note_tags_input)
+                        .hint_text(localizer.t("notes.tags_hint")),
                 );
                 // Enter in the title or tags field saves the note.
                 if (title_edit.lost_focus() || tags_edit.lost_focus())
@@ -1148,27 +1290,31 @@ fn notes_view(
                     *action = Some(Action::SaveNote(note_id));
                 }
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
+                    if ui.button(localizer.t("notes.save")).clicked() {
                         *action = Some(Action::SaveNote(note_id));
                     }
-                    ui.checkbox(note_preview, "Preview");
+                    ui.checkbox(note_preview, localizer.t("notes.preview"));
                     if let Some(note) = notes.iter().find(|note| note.id() == note_id) {
                         let pinned = note.pinned();
-                        if ui.button(if pinned { "Unpin" } else { "Pin" }).clicked() {
+                        let pin_label =
+                            localizer.t(if pinned { "notes.unpin" } else { "notes.pin" });
+                        if ui.button(pin_label).clicked() {
                             *action = Some(Action::PinNote(note_id, !pinned));
                         }
                         let archived = note.archived();
-                        if ui
-                            .button(if archived { "Unarchive" } else { "Archive" })
-                            .clicked()
-                        {
+                        let archive_label = localizer.t(if archived {
+                            "notes.unarchive"
+                        } else {
+                            "notes.archive"
+                        });
+                        if ui.button(archive_label).clicked() {
                             *action = Some(Action::ArchiveNote(note_id, !archived));
                         }
                     }
                 });
                 if !note_backlinks.is_empty() {
                     ui.separator();
-                    ui.label("Backlinks:");
+                    ui.label(localizer.t("notes.backlinks"));
                     for note in note_backlinks {
                         if ui.link(note.title()).clicked() {
                             *action = Some(Action::SelectNote(note.id()));
@@ -1191,15 +1337,20 @@ fn notes_view(
                         }
                     });
             } else {
-                ui.label("Select or create a note.");
+                ui.label(localizer.t("notes.empty_hint"));
             }
         }
     });
 }
 
 /// Renders one task card and returns the action its buttons requested, if any.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "renders a card from the app's disjoint fields"
+)]
 fn card_ui(
     ui: &mut egui::Ui,
+    localizer: &Localizer,
     task: &Task,
     completed: u32,
     active_session: Option<&PomodoroSession>,
@@ -1211,11 +1362,17 @@ fn card_ui(
     let inner = egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.strong(task.title());
-        ui.label(format!("{completed}/{} pomos", task.estimated_pomos()));
+        ui.label(localizer.t_args(
+            "card.pomo_progress",
+            &[
+                ("completed", completed.to_string()),
+                ("estimated", task.estimated_pomos().to_string()),
+            ],
+        ));
 
         match task.status() {
             TaskStatus::Todo => {
-                if ui.button("Start").clicked() {
+                if ui.button(localizer.t("card.start")).clicked() {
                     action = Some(Action::Start(task.id()));
                 }
             }
@@ -1223,44 +1380,52 @@ fn card_ui(
                 if let Some(session) = active_session {
                     ui.label(format!(
                         "{} {}",
-                        phase_label(session.phase()),
+                        phase_label(localizer, session.phase()),
                         format_mmss(session.remaining_seconds(now))
                     ));
-                    if ui.button(advance_label(session.phase())).clicked() {
+                    if ui
+                        .button(advance_label(localizer, session.phase()))
+                        .clicked()
+                    {
                         action = Some(Action::Advance(task.id()));
                     }
                 } else if let Some(phase) = pending
-                    && ui.button(format!("Start {}", phase_label(phase))).clicked()
+                    && ui
+                        .button(localizer.t_args(
+                            "card.start_phase",
+                            &[("phase", phase_label(localizer, phase).to_owned())],
+                        ))
+                        .clicked()
                 {
                     action = Some(Action::StartNext(task.id()));
                 }
                 ui.horizontal(|ui| {
-                    if ui.button("Pause").clicked() {
+                    if ui.button(localizer.t("card.pause")).clicked() {
                         action = Some(Action::Pause(task.id()));
                     }
-                    if ui.button("Complete").clicked() {
+                    if ui.button(localizer.t("card.complete")).clicked() {
                         action = Some(Action::CompleteTask(task.id()));
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(localizer.t("card.cancel")).clicked() {
                         action = Some(Action::Cancel(task.id()));
                     }
                 });
             }
             TaskStatus::Paused => {
                 ui.horizontal(|ui| {
-                    if ui.button("Resume").clicked() {
+                    if ui.button(localizer.t("card.resume")).clicked() {
                         action = Some(Action::Start(task.id()));
                     }
-                    if ui.button("Complete").clicked() {
+                    if ui.button(localizer.t("card.complete")).clicked() {
                         action = Some(Action::CompleteTask(task.id()));
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(localizer.t("card.cancel")).clicked() {
                         action = Some(Action::Cancel(task.id()));
                     }
                 });
             }
             TaskStatus::Done => {
-                ui.label("done");
+                ui.label(localizer.t("card.done_marker"));
             }
             TaskStatus::Cancelled => {}
         }
@@ -1321,36 +1486,80 @@ fn resolve_drop(target: TaskStatus, dropped: TaskId, tasks: &[Task]) -> Option<A
 }
 
 /// Human-readable name of a timer phase.
-fn phase_label(phase: TimerPhase) -> &'static str {
-    match phase {
-        TimerPhase::Focus => "Focus",
-        TimerPhase::ShortBreak => "Short break",
-        TimerPhase::LongBreak => "Long break",
-    }
+fn phase_label(localizer: &Localizer, phase: TimerPhase) -> &str {
+    localizer.t(match phase {
+        TimerPhase::Focus => "phase.focus",
+        TimerPhase::ShortBreak => "phase.short_break",
+        TimerPhase::LongBreak => "phase.long_break",
+    })
 }
 
 /// Label for the button that ends the current phase early.
-fn advance_label(phase: TimerPhase) -> &'static str {
-    if phase.is_effort() {
-        "Complete pomo"
+fn advance_label(localizer: &Localizer, phase: TimerPhase) -> &str {
+    localizer.t(if phase.is_effort() {
+        "card.complete_pomo"
     } else {
-        "Skip break"
+        "card.skip_break"
+    })
+}
+
+/// The localized notification for a phase transition.
+fn notification_message(
+    localizer: &Localizer,
+    ended: TimerPhase,
+    started: Option<TimerPhase>,
+) -> (String, String) {
+    let (summary, body) = match ended {
+        TimerPhase::Focus => (
+            "notify.focus_complete",
+            match started {
+                Some(TimerPhase::ShortBreak | TimerPhase::LongBreak) => "notify.time_for_break",
+                _ => "notify.start_next_break",
+            },
+        ),
+        TimerPhase::ShortBreak | TimerPhase::LongBreak => (
+            "notify.break_over",
+            match started {
+                Some(TimerPhase::Focus) => "notify.back_to_focus",
+                _ => "notify.start_next_focus",
+            },
+        ),
+    };
+    (
+        localizer.t(summary).to_owned(),
+        localizer.t(body).to_owned(),
+    )
+}
+
+/// The localized, user-facing form of a service error.
+fn error_message(localizer: &Localizer, error: &crate::app::Error) -> String {
+    use crate::app::Error;
+    match error {
+        Error::TaskNotFound => localizer.t("error.task_not_found").to_owned(),
+        Error::NoteNotFound => localizer.t("error.note_not_found").to_owned(),
+        Error::TaskNotActive => localizer.t("error.task_not_active").to_owned(),
+        Error::NoRunningSession => localizer.t("error.no_running_session").to_owned(),
+        Error::RewardOverflow => localizer.t("error.reward_overflow").to_owned(),
+        Error::Transition(_) => localizer.t("error.invalid_transition").to_owned(),
+        Error::Repository(inner) => {
+            localizer.t_args("error.storage", &[("message", inner.to_string())])
+        }
     }
 }
 
 /// Formats how long ago `then` was, relative to `now` ("just now", "5 min ago", …).
-fn relative_time(then: DateTime<Utc>, now: DateTime<Utc>) -> String {
+fn relative_time(localizer: &Localizer, then: DateTime<Utc>, now: DateTime<Utc>) -> String {
     let seconds = (now - then).num_seconds();
     if seconds < 60 {
-        "just now".to_owned()
+        localizer.t("time.just_now").to_owned()
     } else if seconds < 3600 {
-        format!("{} min ago", seconds / 60)
+        localizer.t_args("time.minutes_ago", &[("n", (seconds / 60).to_string())])
     } else if seconds < 86_400 {
-        format!("{} h ago", seconds / 3600)
+        localizer.t_args("time.hours_ago", &[("n", (seconds / 3600).to_string())])
     } else if seconds < 2 * 86_400 {
-        "yesterday".to_owned()
+        localizer.t("time.yesterday").to_owned()
     } else if seconds < 7 * 86_400 {
-        format!("{} days ago", seconds / 86_400)
+        localizer.t_args("time.days_ago", &[("n", (seconds / 86_400).to_string())])
     } else {
         then.format("%Y-%m-%d").to_string()
     }
@@ -1390,19 +1599,40 @@ mod tests {
 
     #[test]
     fn relative_time_scales_with_age() {
+        let localizer = Localizer::new(Language::English);
         let now = DateTime::from_timestamp(1_000_000, 0).expect("valid timestamp");
         let at = |seconds_ago: i64| {
             DateTime::from_timestamp(1_000_000 - seconds_ago, 0).expect("valid timestamp")
         };
-        assert_eq!(relative_time(at(5), now), "just now");
-        assert_eq!(relative_time(at(300), now), "5 min ago");
-        assert_eq!(relative_time(at(2 * 3600), now), "2 h ago");
-        assert_eq!(relative_time(at(30 * 3600), now), "yesterday");
-        assert_eq!(relative_time(at(3 * 86_400), now), "3 days ago");
+        assert_eq!(relative_time(&localizer, at(5), now), "just now");
+        assert_eq!(relative_time(&localizer, at(300), now), "5 min ago");
+        assert_eq!(relative_time(&localizer, at(2 * 3600), now), "2 h ago");
+        assert_eq!(relative_time(&localizer, at(30 * 3600), now), "yesterday");
+        assert_eq!(relative_time(&localizer, at(3 * 86_400), now), "3 days ago");
         // Older than a week falls back to the date.
         assert_eq!(
-            relative_time(at(30 * 86_400), now),
+            relative_time(&localizer, at(30 * 86_400), now),
             at(30 * 86_400).format("%Y-%m-%d").to_string()
+        );
+    }
+
+    #[test]
+    fn notification_messages_match_the_transition() {
+        let localizer = Localizer::new(Language::English);
+        assert_eq!(
+            notification_message(&localizer, TimerPhase::Focus, Some(TimerPhase::ShortBreak)),
+            ("Focus complete".to_owned(), "Time for a break.".to_owned())
+        );
+        assert_eq!(
+            notification_message(&localizer, TimerPhase::LongBreak, Some(TimerPhase::Focus)),
+            ("Break over".to_owned(), "Back to focus.".to_owned())
+        );
+        assert_eq!(
+            notification_message(&localizer, TimerPhase::Focus, None),
+            (
+                "Focus complete".to_owned(),
+                "Start your next break.".to_owned()
+            )
         );
     }
 

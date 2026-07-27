@@ -5,7 +5,7 @@
 
 use chrono::{DateTime, Utc};
 use jotphant::app::TaskService;
-use jotphant::domain::{AppConfig, PomodoroConfig, TaskStatus, ThemeChoice};
+use jotphant::domain::{AppConfig, Language, PomodoroConfig, TaskStatus, ThemeChoice};
 use jotphant::storage::{SqliteStore, config};
 use tempfile::tempdir;
 
@@ -90,8 +90,8 @@ fn config_round_trips_on_disk() {
     let dir = tempdir().expect("temp dir");
     let path = dir.path().join("config.toml");
 
-    // First access writes defaults.
-    let defaults = config::load_or_create(&path).expect("create");
+    // First access writes the provided first-run default.
+    let defaults = config::load_or_create(&path, AppConfig::default()).expect("create");
     assert_eq!(defaults, AppConfig::default());
     assert!(path.exists());
 
@@ -100,7 +100,11 @@ fn config_round_trips_on_disk() {
         PomodoroConfig::new(50 * 60, 10 * 60, 20 * 60, 3, false, true),
         8,
         ThemeChoice::Dark,
+        Language::English,
     );
     config::save(&path, &custom).expect("save");
-    assert_eq!(config::load_or_create(&path).expect("reload"), custom);
+    assert_eq!(
+        config::load_or_create(&path, AppConfig::default()).expect("reload"),
+        custom
+    );
 }

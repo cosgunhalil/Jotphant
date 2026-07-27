@@ -656,7 +656,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::config::ThemeChoice;
+    use crate::domain::config::{Language, ThemeChoice};
     use crate::domain::pomodoro::PomodoroConfig;
     use crate::storage::SqliteStore;
 
@@ -1236,6 +1236,7 @@ mod tests {
             PomodoroConfig::new(25 * 60, 5 * 60, 15 * 60, 4, false, false),
             5,
             ThemeChoice::default(),
+            Language::default(),
         );
         let service = service_with(config);
         let task = service.create_task("manual", 4, ts()).expect("create");
@@ -1269,6 +1270,7 @@ mod tests {
             PomodoroConfig::default(),
             10,
             ThemeChoice::default(),
+            Language::default(),
         ));
         assert_eq!(service.leisure_minutes_per_pomo(), 10);
     }

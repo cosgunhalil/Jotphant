@@ -1,0 +1,121 @@
+# Azərbaycanca — Azerbaijani.
+
+app:
+  bank_balance: "Bank: {pomos} pomo (≈ {minutes} dəq)"
+  settings: "Tənzimləmələr"
+  view_board: "Lövhə"
+  view_notes: "Qeydlər"
+  view_history: "Tarixçə"
+
+status:
+  todo: "Ediləcək"
+  in_progress: "Davam edir"
+  paused: "Dayandırılıb"
+  done: "Tamamlanıb"
+  cancelled: "Ləğv edilib"
+
+phase:
+  focus: "Fokus"
+  short_break: "Qısa fasilə"
+  long_break: "Uzun fasilə"
+
+board:
+  drop_here: "Bura burax"
+  new_task_hint: "Yeni tapşırıq başlığı (əlavə etmək üçün Enter)"
+  estimate_short: "təxmin"
+  add: "Əlavə et"
+
+card:
+  pomo_progress: "{completed}/{estimated} pomo"
+  start: "Başlat"
+  pause: "Dayandır"
+  resume: "Davam et"
+  complete: "Tamamla"
+  cancel: "Ləğv et"
+  complete_pomo: "Pomonu tamamla"
+  skip_break: "Fasiləni ötür"
+  start_phase: "Başlat: {phase}"
+  done_marker: "tamamlanıb"
+
+detail:
+  status: "Status: {status}"
+  progress: "İrəliləyiş: {completed} pomo tamamlanıb"
+  estimate: "Təxmin"
+  set: "Təyin et"
+  follow_up_of: "Bunun davamı:"
+  create_follow_up: "Davam tapşırığı yarat"
+  description: "Təsvir"
+  save_description: "Təsviri yadda saxla"
+  jots: "Sürətli qeydlər"
+  jot_hint: "qeyd yazıb Enter basın"
+  jot: "Əlavə et"
+  edit: "Düzəliş et"
+  delete: "Sil"
+  save: "Yadda saxla"
+  cancel: "Ləğv et"
+  edited_marker: "(düzəliş edilib)"
+  close: "Bağla"
+
+time:
+  just_now: "indicə"
+  minutes_ago: "{n} dəq əvvəl"
+  hours_ago: "{n} saat əvvəl"
+  yesterday: "dünən"
+  days_ago: "{n} gün əvvəl"
+
+notes:
+  new_note: "Yeni qeyd"
+  search_hint: "Axtar"
+  untitled: "Adsız"
+  archived_marker: "(arxivlənib)"
+  title_hint: "Başlıq"
+  tags_hint: "vergüllə ayrılmış etiketlər"
+  save: "Yadda saxla"
+  preview: "Önbaxış"
+  pin: "Sabitlə"
+  unpin: "Sabitləməni götür"
+  archive: "Arxivlə"
+  unarchive: "Arxivdən çıxar"
+  backlinks: "Geri keçidlər:"
+  empty_hint: "Qeyd seçin və ya yaradın."
+
+history:
+  total_effort: "Ölçülmüş ümumi əmək: {pomos} pomo"
+  banked: "Bankda: {pomos} pomo (≈ {minutes} dəq)"
+  column_task: "Tapşırıq"
+  column_status: "Status"
+  column_pomos: "Pomo"
+
+settings:
+  title: "Tənzimləmələr"
+  focus_minutes: "Fokus (dəq)"
+  short_break_minutes: "Qısa fasilə (dəq)"
+  long_break_minutes: "Uzun fasilə (dəq)"
+  long_break_after: "Uzun fasilə tezliyi"
+  auto_start_breaks: "Fasilələri avtomatik başlat"
+  auto_start_focus: "Fokusu avtomatik başlat"
+  leisure_per_pomo: "Pomo başına istirahət dəq"
+  theme: "Tema"
+  theme_light: "Açıq"
+  theme_dark: "Tünd"
+  language: "Dil"
+  save: "Yadda saxla"
+  cancel: "Ləğv et"
+
+notify:
+  focus_complete: "Fokus tamamlandı"
+  time_for_break: "Fasilə vaxtıdır."
+  start_next_break: "Növbəti fasiləni başladın."
+  break_over: "Fasilə bitdi"
+  back_to_focus: "Fokusa qayıdın."
+  start_next_focus: "Növbəti fokus seansını başladın."
+
+error:
+  task_not_found: "tapşırıq tapılmadı"
+  note_not_found: "qeyd tapılmadı"
+  task_not_active: "tapşırıq aktiv deyil"
+  no_running_session: "tapşırığın işləyən seansı yoxdur"
+  reward_overflow: "mükafat miqdarı çox böyükdür"
+  invalid_transition: "bu status dəyişikliyinə icazə verilmir"
+  storage: "yaddaş xətası: {message}"
+  title_required: "tapşırıq başlığı tələb olunur"

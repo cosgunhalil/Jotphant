@@ -1,0 +1,121 @@
+# Türkçe — Turkish.
+
+app:
+  bank_balance: "Kasa: {pomos} pomo (≈ {minutes} dk)"
+  settings: "Ayarlar"
+  view_board: "Pano"
+  view_notes: "Notlar"
+  view_history: "Geçmiş"
+
+status:
+  todo: "Yapılacak"
+  in_progress: "Devam Ediyor"
+  paused: "Duraklatıldı"
+  done: "Tamamlandı"
+  cancelled: "İptal Edildi"
+
+phase:
+  focus: "Odak"
+  short_break: "Kısa mola"
+  long_break: "Uzun mola"
+
+board:
+  drop_here: "Buraya bırak"
+  new_task_hint: "Yeni görev başlığı (eklemek için Enter)"
+  estimate_short: "tahmin"
+  add: "Ekle"
+
+card:
+  pomo_progress: "{completed}/{estimated} pomo"
+  start: "Başlat"
+  pause: "Duraklat"
+  resume: "Devam Et"
+  complete: "Tamamla"
+  cancel: "İptal"
+  complete_pomo: "Pomoyu tamamla"
+  skip_break: "Molayı atla"
+  start_phase: "Başlat: {phase}"
+  done_marker: "tamamlandı"
+
+detail:
+  status: "Durum: {status}"
+  progress: "İlerleme: {completed} pomo tamamlandı"
+  estimate: "Tahmin"
+  set: "Ayarla"
+  follow_up_of: "Şunun devamı:"
+  create_follow_up: "Devam görevi oluştur"
+  description: "Açıklama"
+  save_description: "Açıklamayı kaydet"
+  jots: "Hızlı notlar"
+  jot_hint: "bir not yazıp Enter'a basın"
+  jot: "Ekle"
+  edit: "Düzenle"
+  delete: "Sil"
+  save: "Kaydet"
+  cancel: "İptal"
+  edited_marker: "(düzenlendi)"
+  close: "Kapat"
+
+time:
+  just_now: "az önce"
+  minutes_ago: "{n} dk önce"
+  hours_ago: "{n} sa önce"
+  yesterday: "dün"
+  days_ago: "{n} gün önce"
+
+notes:
+  new_note: "Yeni not"
+  search_hint: "Ara"
+  untitled: "Adsız"
+  archived_marker: "(arşivlendi)"
+  title_hint: "Başlık"
+  tags_hint: "etiketler, virgülle ayrılmış"
+  save: "Kaydet"
+  preview: "Önizleme"
+  pin: "Sabitle"
+  unpin: "Sabitlemeyi kaldır"
+  archive: "Arşivle"
+  unarchive: "Arşivden çıkar"
+  backlinks: "Geri bağlantılar:"
+  empty_hint: "Bir not seçin veya oluşturun."
+
+history:
+  total_effort: "Toplam ölçülen emek: {pomos} pomo"
+  banked: "Kasada: {pomos} pomo (≈ {minutes} dk)"
+  column_task: "Görev"
+  column_status: "Durum"
+  column_pomos: "Pomo"
+
+settings:
+  title: "Ayarlar"
+  focus_minutes: "Odak (dk)"
+  short_break_minutes: "Kısa mola (dk)"
+  long_break_minutes: "Uzun mola (dk)"
+  long_break_after: "Uzun mola sıklığı"
+  auto_start_breaks: "Molaları otomatik başlat"
+  auto_start_focus: "Odağı otomatik başlat"
+  leisure_per_pomo: "Pomo başına serbest dk"
+  theme: "Tema"
+  theme_light: "Açık"
+  theme_dark: "Koyu"
+  language: "Dil"
+  save: "Kaydet"
+  cancel: "İptal"
+
+notify:
+  focus_complete: "Odak tamamlandı"
+  time_for_break: "Mola zamanı."
+  start_next_break: "Sıradaki molayı başlatın."
+  break_over: "Mola bitti"
+  back_to_focus: "Odağa dönün."
+  start_next_focus: "Sıradaki odak seansını başlatın."
+
+error:
+  task_not_found: "görev bulunamadı"
+  note_not_found: "not bulunamadı"
+  task_not_active: "görev etkin değil"
+  no_running_session: "görevin çalışan bir seansı yok"
+  reward_overflow: "ödül miktarı çok büyük"
+  invalid_transition: "bu durum değişikliğine izin verilmiyor"
+  storage: "depolama hatası: {message}"
+  title_required: "görev başlığı gerekli"
