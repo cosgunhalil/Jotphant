@@ -96,7 +96,7 @@ Hand-rolled YAML localization: en/tr/es/az, system-language default, errors incl
 - [x] L1 Localization base: `Localizer` (flatten, `t`/`t_args`, EN fallback, missing-key
       marker), full `locales/en.yaml` inventory, completeness test harness
 - [x] L2 Config + Settings: `[ui] language`, picker, live switch, system-locale default
-- [ ] L3 Externalize all UI strings (board, detail, notes, settings, history, times,
+- [x] L3 Externalize all UI strings (board, detail, notes, settings, history, times,
       notifier, error mapping)
 - [ ] L4 Ship tr/es/az catalogs + "adding a language" guide in CONTRIBUTING
 
