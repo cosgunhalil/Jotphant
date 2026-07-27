@@ -14,7 +14,7 @@ use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
 use crate::app::{TaskEffort, TaskService};
-use crate::domain::config::{AppConfig, ThemeChoice};
+use crate::domain::config::{AppConfig, Language, ThemeChoice};
 use crate::domain::ids::{NoteId, TaskId};
 use crate::domain::note::Note;
 use crate::domain::pomodoro::PomodoroConfig;
@@ -23,6 +23,7 @@ use crate::domain::repository::{
 };
 use crate::domain::session::{PomodoroSession, TimerPhase};
 use crate::domain::task::{Task, TaskStatus};
+use crate::localization::Localizer;
 use crate::notifier::Notifier;
 
 /// Which top-level screen is showing.
@@ -43,6 +44,7 @@ struct SettingsDraft {
     auto_start_focus: bool,
     leisure_minutes_per_pomo: u32,
     theme: ThemeChoice,
+    language: Language,
 }
 
 impl SettingsDraft {
@@ -57,6 +59,7 @@ impl SettingsDraft {
             auto_start_focus: pomodoro.should_auto_start(TimerPhase::Focus),
             leisure_minutes_per_pomo: config.leisure_minutes_per_pomo(),
             theme: config.theme(),
+            language: config.language(),
         }
     }
 
@@ -72,6 +75,7 @@ impl SettingsDraft {
             ),
             self.leisure_minutes_per_pomo,
             self.theme,
+            self.language,
         )
     }
 }
@@ -158,6 +162,8 @@ pub struct JotphantApp<S> {
     editing_jot_text: String,
     report: Vec<TaskEffort>,
     applied_theme: Option<ThemeChoice>,
+    localizer: Localizer,
+    applied_language: Language,
     dragging: Option<TaskId>,
     /// A brief celebratory highlight on a card whose pomo just completed:
     /// the task and the ui-time the flash started.
@@ -178,10 +184,13 @@ where
         save_config: SaveConfig,
         notifier: Box<dyn Notifier>,
     ) -> Self {
+        let language = service.config().language();
         let mut app = Self {
             service,
             save_config,
             notifier,
+            localizer: Localizer::new(language),
+            applied_language: language,
             new_title: String::new(),
             new_estimate: 1,
             tasks: Vec::new(),
@@ -559,6 +568,12 @@ where
         if self.applied_theme != Some(theme_choice) {
             ui.ctx().set_visuals(theme::visuals(theme_choice));
             self.applied_theme = Some(theme_choice);
+        }
+        // Rebuild the localizer when the configured language changes.
+        let language = self.service.config().language();
+        if self.applied_language != language {
+            self.localizer = Localizer::new(language);
+            self.applied_language = language;
         }
 
         let now = Utc::now();
@@ -1042,6 +1057,19 @@ where
                             ui.selectable_value(&mut draft.theme, ThemeChoice::Light, "Light");
                             ui.selectable_value(&mut draft.theme, ThemeChoice::Dark, "Dark");
                         });
+                        ui.end_row();
+                        ui.label(self.localizer.t("settings.language"));
+                        egui::ComboBox::from_id_salt("settings_language")
+                            .selected_text(draft.language.native_name())
+                            .show_ui(ui, |ui| {
+                                for language in Language::ALL {
+                                    ui.selectable_value(
+                                        &mut draft.language,
+                                        language,
+                                        language.native_name(),
+                                    );
+                                }
+                            });
                         ui.end_row();
                     });
                 ui.separator();

@@ -63,6 +63,7 @@ pub struct AppConfig {
     pomodoro: PomodoroConfig,
     leisure_minutes_per_pomo: u32,
     theme: ThemeChoice,
+    language: Language,
 }
 
 impl AppConfig {
@@ -72,11 +73,13 @@ impl AppConfig {
         pomodoro: PomodoroConfig,
         leisure_minutes_per_pomo: u32,
         theme: ThemeChoice,
+        language: Language,
     ) -> Self {
         Self {
             pomodoro,
             leisure_minutes_per_pomo,
             theme,
+            language,
         }
     }
 
@@ -84,6 +87,20 @@ impl AppConfig {
     #[must_use]
     pub fn theme(&self) -> ThemeChoice {
         self.theme
+    }
+
+    /// The user's display-language preference.
+    #[must_use]
+    pub fn language(&self) -> Language {
+        self.language
+    }
+
+    /// Returns this config with a different language (used to seed the first-run
+    /// default from the detected system locale).
+    #[must_use]
+    pub fn with_language(mut self, language: Language) -> Self {
+        self.language = language;
+        self
     }
 
     /// The Pomodoro cycle configuration.
@@ -101,6 +118,11 @@ impl AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        Self::new(PomodoroConfig::default(), 5, ThemeChoice::default())
+        Self::new(
+            PomodoroConfig::default(),
+            5,
+            ThemeChoice::default(),
+            Language::default(),
+        )
     }
 }

@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 use directories::ProjectDirs;
 use jotphant::app::TaskService;
-use jotphant::domain::AppConfig;
+use jotphant::domain::{AppConfig, Language};
 use jotphant::notifier::DesktopNotifier;
 use jotphant::storage::{SqliteStore, config};
 use jotphant::ui::JotphantApp;
@@ -37,7 +37,12 @@ fn app_paths() -> Result<(PathBuf, PathBuf), Box<dyn Error>> {
 fn main() -> Result<(), Box<dyn Error>> {
     let (db_path, config_path) = app_paths()?;
 
-    let config = config::load_or_create(&config_path)?;
+    // On first run, default the language to the system locale when we support it.
+    let detected_language = sys_locale::get_locale()
+        .and_then(|tag| Language::from_locale(&tag))
+        .unwrap_or_default();
+    let first_run_default = AppConfig::default().with_language(detected_language);
+    let config = config::load_or_create(&config_path, first_run_default)?;
     let store = SqliteStore::open(&db_path)?;
     let service = TaskService::new(store, config);
 

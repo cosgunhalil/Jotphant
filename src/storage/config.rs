@@ -9,7 +9,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::config::{AppConfig, ThemeChoice};
+use crate::domain::config::{AppConfig, Language, ThemeChoice};
 use crate::domain::pomodoro::PomodoroConfig;
 use crate::domain::session::TimerPhase;
 
@@ -35,15 +35,22 @@ struct ConfigDto {
     ui: UiDto,
 }
 
+// `serde(default)` at the struct level fills missing keys from `Default`, so a
+// config written by an older version (e.g. `[ui]` without `language`) still loads.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
 struct UiDto {
     theme: ThemeDto,
+    /// Two-letter language code matching a `locales/` catalog (e.g. "en").
+    /// Unknown codes fall back to English rather than failing the load.
+    language: String,
 }
 
 impl Default for UiDto {
     fn default() -> Self {
         Self {
             theme: ThemeDto::Light,
+            language: Language::default().code().to_owned(),
         }
     }
 }
@@ -72,6 +79,7 @@ impl ThemeDto {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
 struct PomodoroDto {
     focus_minutes: u32,
     short_break_minutes: u32,
@@ -95,6 +103,7 @@ impl Default for PomodoroDto {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
 struct RewardsDto {
     leisure_minutes_per_pomo: u32,
 }
@@ -120,6 +129,7 @@ impl ConfigDto {
             ),
             self.rewards.leisure_minutes_per_pomo,
             self.ui.theme.into_domain(),
+            Language::from_locale(&self.ui.language).unwrap_or_default(),
         )
     }
 
@@ -128,6 +138,7 @@ impl ConfigDto {
         Self {
             ui: UiDto {
                 theme: ThemeDto::from_domain(config.theme()),
+                language: config.language().code().to_owned(),
             },
             pomodoro: PomodoroDto {
                 focus_minutes: pomodoro.duration_seconds(TimerPhase::Focus) / 60,
@@ -162,18 +173,18 @@ pub fn to_toml(config: &AppConfig) -> Result<String, ConfigError> {
     Ok(text)
 }
 
-/// Loads the config from `path`, creating it with defaults if it does not yet exist.
+/// Loads the config from `path`, creating it with `first_run_default` if it does not
+/// yet exist (the composition root seeds this with the detected system language).
 ///
 /// # Errors
 /// Returns [`ConfigError`] on an I/O, parse, or serialize failure.
-pub fn load_or_create(path: &Path) -> Result<AppConfig, ConfigError> {
+pub fn load_or_create(path: &Path, first_run_default: AppConfig) -> Result<AppConfig, ConfigError> {
     if path.exists() {
         let text = fs::read_to_string(path)?;
         parse(&text)
     } else {
-        let config = AppConfig::default();
-        fs::write(path, to_toml(&config)?)?;
-        Ok(config)
+        fs::write(path, to_toml(&first_run_default)?)?;
+        Ok(first_run_default)
     }
 }
 
@@ -204,10 +215,21 @@ mod tests {
             PomodoroConfig::new(50 * 60, 10 * 60, 20 * 60, 3, false, true),
             8,
             ThemeChoice::Dark,
+            Language::English,
         );
         let text = to_toml(&config).expect("serialize");
         let parsed = parse(&text).expect("parse");
         assert_eq!(parsed, config);
+    }
+
+    #[test]
+    fn language_parses_from_the_ui_section_and_unknown_codes_fall_back() {
+        let parsed = parse("[ui]\ntheme = \"light\"\nlanguage = \"en\"\n").expect("parse");
+        assert_eq!(parsed.language(), Language::English);
+
+        // A code we have no catalog for degrades to English instead of failing.
+        let unknown = parse("[ui]\ntheme = \"light\"\nlanguage = \"zz\"\n").expect("parse");
+        assert_eq!(unknown.language(), Language::English);
     }
 
     #[test]
