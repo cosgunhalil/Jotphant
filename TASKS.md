@@ -100,6 +100,13 @@ Hand-rolled YAML localization: en/tr/es/az, system-language default, errors incl
       notifier, error mapping)
 - [x] L4 Ship tr/es/az catalogs + "adding a language" guide in CONTRIBUTING
 
+## Release trust (antivirus false positives)
+
+- [x] V1 Embed Windows version resource: product metadata + icon via build.rs/winresource
+- [ ] V2 Report the false positive to Microsoft (microsoft.com/wdsi/filesubmission) — user
+- [ ] V3 Code signing (SignPath.io free for open source; or an OV cert / Azure Trusted Signing)
+- [ ] V4 Later: winget/Scoop distribution, GitHub build-provenance attestation
+
 ## Docs & wrap-up
 
 - [x] D1 README.md, CONTRIBUTING.md, and auto-changelog scaffold (CHANGELOG.md)

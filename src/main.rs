@@ -79,9 +79,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         config::save(&config_path, config).map_err(|error| error.to_string())
     });
 
+    // The title-bar/taskbar icon is set at runtime (the resource icon embedded by
+    // build.rs only covers Explorer and file properties).
+    let window_icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png"))
+        .expect("embedded icon.png is a valid PNG");
     let native_options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("Jotphant")
+            .with_icon(window_icon)
             .with_inner_size([1000.0, 700.0])
             .with_min_inner_size([640.0, 480.0]),
         ..Default::default()
