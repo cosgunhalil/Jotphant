@@ -44,6 +44,27 @@ it is up to you.
 cargo run --release
 ```
 
+### A note on antivirus warnings
+
+Windows Defender sometimes flags new releases with a generic machine-learning
+detection (e.g. `Wacatac!ml`). This is a **false positive** common to new,
+unsigned open-source binaries: Jotphant's releases are built automatically by
+[public GitHub Actions CI](../../actions) straight from the tagged source code —
+there is no hand-built binary involved. We report each false positive to
+Microsoft. Code signing is on the roadmap: Jotphant has applied to use free
+code signing provided by [SignPath.io](https://signpath.io), with a certificate
+from the [SignPath Foundation](https://signpath.org).
+
+You can cryptographically verify that a download was built by this repository's
+CI (requires the [GitHub CLI](https://cli.github.com)):
+
+```bash
+gh attestation verify jotphant-v0.2.1-windows-x86_64.zip --repo cosgunhalil/Jotphant
+```
+
+If in doubt, you can also scan the file at [VirusTotal](https://www.virustotal.com)
+or build from source yourself.
+
 ## Where your data lives
 
 | What | Where |

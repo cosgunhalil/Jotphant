@@ -105,7 +105,9 @@ Hand-rolled YAML localization: en/tr/es/az, system-language default, errors incl
 - [x] V1 Embed Windows version resource: product metadata + icon via build.rs/winresource
 - [ ] V2 Report the false positive to Microsoft (microsoft.com/wdsi/filesubmission) — user
 - [ ] V3 Code signing (SignPath.io free for open source; or an OV cert / Azure Trusted Signing)
-- [ ] V4 Later: winget/Scoop distribution, GitHub build-provenance attestation
+- [x] V1b Keep the symbol table (`strip = "debuginfo"`) — fully-stripped binaries bait ML heuristics
+- [x] V1c GitHub build-provenance attestation on releases + README verify/antivirus section
+- [ ] V4 Later: winget/Scoop distribution
 
 ## Docs & wrap-up
 

@@ -8,9 +8,12 @@ on:
   push:
     tags: ["v*"]
 
-# Required to create the release and upload assets.
+# contents: create the release and upload assets.
+# id-token + attestations: sign build provenance for the artifacts.
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -41,6 +44,13 @@ jobs:
           $zip = "jotphant-${{ github.ref_name }}-windows-x86_64.zip"
           Compress-Archive -Path target/release/Jotphant.exe -DestinationPath $zip
           echo "ZIP_NAME=$zip" >> $env:GITHUB_ENV
+
+      # Signed provenance: anyone can verify the zip was built by this workflow
+      # from this repository (gh attestation verify <zip> --repo <owner/repo>).
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ${{ env.ZIP_NAME }}
 
       - name: Publish GitHub release
         shell: pwsh
