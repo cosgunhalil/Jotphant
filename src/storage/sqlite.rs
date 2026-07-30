@@ -11,7 +11,7 @@ use crate::domain::repository::{
     BankRepository, RepositoryError, SessionRepository, TaskRepository, Transactional,
 };
 use crate::domain::session::{PomodoroSession, SessionStatus, TimerPhase};
-use crate::domain::task::{Task, TaskStatus};
+use crate::domain::task::{Rating, Task, TaskStatus};
 
 use super::schema;
 
@@ -63,7 +63,7 @@ impl SqliteStore {
 
 // --- Column lists (kept in one place so SELECTs and row mappers stay in sync) ---
 
-const TASK_COLUMNS: &str = "id, title, description, status, estimated_pomos, linked_from_task_id, created_at, completed_at";
+const TASK_COLUMNS: &str = "id, title, description, status, estimated_pomos, effort, effect, linked_from_task_id, created_at, completed_at";
 const SESSION_COLUMNS: &str =
     "id, task_id, phase, status, configured_duration_seconds, started_at, finished_at";
 const BANK_COLUMNS: &str = "id, task_id, amount_pomos, transaction_type, created_at";
@@ -88,6 +88,23 @@ fn task_status_from_str(value: &str) -> Result<TaskStatus, RepositoryError> {
         "done" => Ok(TaskStatus::Done),
         "cancelled" => Ok(TaskStatus::Cancelled),
         other => Err(unknown("task status", other)),
+    }
+}
+
+fn rating_to_str(rating: Rating) -> &'static str {
+    match rating {
+        Rating::Low => "low",
+        Rating::Mid => "mid",
+        Rating::High => "high",
+    }
+}
+
+fn rating_from_str(value: &str) -> Result<Rating, RepositoryError> {
+    match value {
+        "low" => Ok(Rating::Low),
+        "mid" => Ok(Rating::Mid),
+        "high" => Ok(Rating::High),
+        other => Err(unknown("rating", other)),
     }
 }
 
@@ -175,12 +192,22 @@ fn row_to_task(row: &Row) -> Result<Task, RepositoryError> {
         .get::<_, Option<String>>("completed_at")?
         .map(|value| datetime_from_str(&value))
         .transpose()?;
+    let effort = row
+        .get::<_, Option<String>>("effort")?
+        .map(|value| rating_from_str(&value))
+        .transpose()?;
+    let effect = row
+        .get::<_, Option<String>>("effect")?
+        .map(|value| rating_from_str(&value))
+        .transpose()?;
     Ok(Task::from_fields(
         TaskId::new(row.get("id")?),
         row.get("title")?,
         row.get("description")?,
         task_status_from_str(&row.get::<_, String>("status")?)?,
         to_u32(row.get("estimated_pomos")?)?,
+        effort,
+        effect,
         row.get::<_, Option<i64>>("linked_from_task_id")?
             .map(TaskId::new),
         datetime_from_str(&row.get::<_, String>("created_at")?)?,
@@ -270,7 +297,8 @@ impl TaskRepository for SqliteStore {
         let affected = self.conn.execute(
             "UPDATE tasks
              SET title = ?2, description = ?3, status = ?4, estimated_pomos = ?5,
-                 linked_from_task_id = ?6, created_at = ?7, completed_at = ?8
+                 effort = ?6, effect = ?7, linked_from_task_id = ?8, created_at = ?9,
+                 completed_at = ?10
              WHERE id = ?1",
             params![
                 task.id().value(),
@@ -278,6 +306,8 @@ impl TaskRepository for SqliteStore {
                 task.description(),
                 task_status_to_str(task.status()),
                 i64::from(task.estimated_pomos()),
+                task.effort().map(rating_to_str),
+                task.effect().map(rating_to_str),
                 task.linked_from().map(TaskId::value),
                 datetime_to_str(task.created_at()),
                 task.completed_at().map(datetime_to_str),
@@ -444,6 +474,29 @@ mod tests {
         assert_eq!(fetched.title(), "write storage");
         assert_eq!(fetched.estimated_pomos(), 4);
         assert_eq!(fetched.created_at(), ts());
+    }
+
+    #[test]
+    fn ratings_default_unset_and_round_trip() {
+        let store = store();
+        let mut task = store.create_task("rate me", 1, ts()).expect("create");
+        assert_eq!(task.effort(), None);
+        assert_eq!(task.effect(), None);
+
+        task.set_ratings(Some(Rating::Low), Some(Rating::High));
+        store.update_task(&task).expect("update");
+
+        let fetched = store.get_task(task.id()).expect("get").expect("exists");
+        assert_eq!(fetched.effort(), Some(Rating::Low));
+        assert_eq!(fetched.effect(), Some(Rating::High));
+        assert_eq!(fetched.value_score(), Some(2));
+
+        // Clearing the ratings persists too.
+        task.set_ratings(None, None);
+        store.update_task(&task).expect("update");
+        let cleared = store.get_task(task.id()).expect("get").expect("exists");
+        assert_eq!(cleared.effort(), None);
+        assert_eq!(cleared.effect(), None);
     }
 
     #[test]

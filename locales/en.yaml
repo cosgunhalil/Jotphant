@@ -47,6 +47,8 @@ detail:
   progress: "Progress: {completed} pomos done"
   estimate: "Estimate"
   set: "Set"
+  effort: "Effort"
+  effect: "Effect"
   follow_up_of: "Follow-up of:"
   create_follow_up: "Create follow-up"
   description: "Description"
@@ -60,6 +62,12 @@ detail:
   cancel: "Cancel"
   edited_marker: "(edited)"
   close: "Close"
+
+rating:
+  none: "None"
+  low: "Low"
+  mid: "Mid"
+  high: "High"
 
 time:
   just_now: "just now"

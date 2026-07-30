@@ -126,9 +126,51 @@ fn apply(mut visuals: Visuals, palette: &Palette) -> Visuals {
     visuals
 }
 
+/// Blends `base` toward the value-score hue: positive scores toward green (quick
+/// win), zero toward warm amber (rated but balanced), negative toward red (money
+/// pit). Intensity grows with the score's magnitude.
+#[must_use]
+pub fn value_tint(base: Color32, score: i8) -> Color32 {
+    const GREEN: Color32 = Color32::from_rgb(110, 170, 80);
+    const AMBER: Color32 = Color32::from_rgb(210, 110, 25);
+    const RED: Color32 = Color32::from_rgb(200, 80, 60);
+    let (target, strength) = if score > 0 {
+        (GREEN, 0.14 * f32::from(score))
+    } else if score < 0 {
+        (RED, 0.14 * f32::from(-score))
+    } else {
+        (AMBER, 0.10)
+    };
+    base.lerp_to_gamma(target, strength)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn value_tints_shift_toward_their_hue() {
+        let base = LIGHT.panel;
+        let quick_win = value_tint(base, 2);
+        let money_pit = value_tint(base, -2);
+        let balanced = value_tint(base, 0);
+        // Green pulls the green channel up relative to red; red does the opposite.
+        assert!(
+            i32::from(quick_win.g()) - i32::from(quick_win.r())
+                > i32::from(base.g()) - i32::from(base.r())
+        );
+        assert!(
+            i32::from(money_pit.r()) - i32::from(money_pit.g())
+                > i32::from(base.r()) - i32::from(base.g())
+        );
+        // All three differ from the base and from each other.
+        assert_ne!(quick_win, base);
+        assert_ne!(money_pit, base);
+        assert_ne!(balanced, base);
+        assert_ne!(quick_win, money_pit);
+        // Stronger scores tint more.
+        assert_ne!(value_tint(base, 1), quick_win);
+    }
 
     #[test]
     fn light_and_dark_use_their_palettes() {

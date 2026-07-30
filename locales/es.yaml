@@ -42,6 +42,8 @@ detail:
   progress: "Progreso: {completed} pomos completados"
   estimate: "Estimación"
   set: "Fijar"
+  effort: "Esfuerzo"
+  effect: "Efecto"
   follow_up_of: "Continuación de:"
   create_follow_up: "Crear continuación"
   description: "Descripción"
@@ -55,6 +57,12 @@ detail:
   cancel: "Cancelar"
   edited_marker: "(editado)"
   close: "Cerrar"
+
+rating:
+  none: "Ninguno"
+  low: "Bajo"
+  mid: "Medio"
+  high: "Alto"
 
 time:
   just_now: "ahora mismo"

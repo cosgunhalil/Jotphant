@@ -12,7 +12,7 @@ use crate::domain::repository::{
 };
 use crate::domain::reward;
 use crate::domain::session::{PomodoroSession, SessionStatus, TimerPhase};
-use crate::domain::task::{Task, TaskStatus};
+use crate::domain::task::{Rating, Task, TaskStatus};
 use crate::domain::wikilink;
 
 /// Derives a note title from quick-jot text: its first non-empty line (truncated), or
@@ -277,6 +277,22 @@ where
             })
             .collect();
         Ok(abandoned)
+    }
+
+    /// Sets or clears a task's effort/effect ratings.
+    ///
+    /// # Errors
+    /// Returns [`Error::TaskNotFound`] if the task does not exist, or a storage error.
+    pub fn set_task_ratings(
+        &self,
+        id: TaskId,
+        effort: Option<Rating>,
+        effect: Option<Rating>,
+    ) -> Result<Task, Error> {
+        let mut task = self.store.get_task(id)?.ok_or(Error::TaskNotFound)?;
+        task.set_ratings(effort, effect);
+        self.store.update_task(&task)?;
+        Ok(task)
     }
 
     /// Updates a task's pomodoro estimate.
@@ -1064,6 +1080,22 @@ mod tests {
             .find(|row| row.task().id() == idle.id())
             .expect("idle row");
         assert_eq!(idle_row.completed_pomos(), 0);
+    }
+
+    #[test]
+    fn task_ratings_can_be_set_and_cleared() {
+        let service = service();
+        let task = service.create_task("prioritize", 1, ts()).expect("create");
+
+        let rated = service
+            .set_task_ratings(task.id(), Some(Rating::Low), Some(Rating::High))
+            .expect("set ratings");
+        assert_eq!(rated.value_score(), Some(2));
+
+        let cleared = service
+            .set_task_ratings(task.id(), None, None)
+            .expect("clear ratings");
+        assert_eq!(cleared.value_score(), None);
     }
 
     #[test]

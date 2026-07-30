@@ -42,6 +42,8 @@ detail:
   progress: "İrəliləyiş: {completed} pomo tamamlanıb"
   estimate: "Təxmin"
   set: "Təyin et"
+  effort: "Səy"
+  effect: "Təsir"
   follow_up_of: "Bunun davamı:"
   create_follow_up: "Davam tapşırığı yarat"
   description: "Təsvir"
@@ -55,6 +57,12 @@ detail:
   cancel: "Ləğv et"
   edited_marker: "(düzəliş edilib)"
   close: "Bağla"
+
+rating:
+  none: "Yoxdur"
+  low: "Aşağı"
+  mid: "Orta"
+  high: "Yüksək"
 
 time:
   just_now: "indicə"

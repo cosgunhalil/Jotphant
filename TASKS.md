@@ -109,6 +109,15 @@ Hand-rolled YAML localization: en/tr/es/az, system-language default, errors incl
 - [x] V1c GitHub build-provenance attestation on releases + README verify/antivirus section
 - [ ] V4 Later: winget/Scoop distribution
 
+## M8 — Effort/Effect value matrix
+
+Optional Low/Mid/High effort & effect ratings per task; card background tinted by the
+value score (effect − effort: green quick-win → red money-pit).
+
+- [x] E1 Domain + storage + service: `Rating`, optional task ratings, `value_score`,
+      migration v4, `set_task_ratings` (test-first)
+- [x] E2 UI + localization: detail-modal selectors, gradient card fill, catalog strings
+
 ## Docs & wrap-up
 
 - [x] D1 README.md, CONTRIBUTING.md, and auto-changelog scaffold (CHANGELOG.md)

@@ -92,6 +92,29 @@ impl InvalidTransition {
     }
 }
 
+/// A three-step rating used for a task's expected effort and effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Rating {
+    /// Low.
+    Low,
+    /// Medium.
+    Mid,
+    /// High.
+    High,
+}
+
+impl Rating {
+    /// The rating as a number (0, 1, 2) for score arithmetic.
+    #[must_use]
+    pub fn level(self) -> i8 {
+        match self {
+            Self::Low => 0,
+            Self::Mid => 1,
+            Self::High => 2,
+        }
+    }
+}
+
 /// A unit of work whose focused effort is measured in pomodoros.
 ///
 /// Completed effort is never stored on the task; it is derived from session history
@@ -103,6 +126,8 @@ pub struct Task {
     description: String,
     status: TaskStatus,
     estimated_pomos: u32,
+    effort: Option<Rating>,
+    effect: Option<Rating>,
     linked_from: Option<TaskId>,
     created_at: DateTime<Utc>,
     completed_at: Option<DateTime<Utc>>,
@@ -118,6 +143,8 @@ impl Task {
             description: String::new(),
             status: TaskStatus::Todo,
             estimated_pomos,
+            effort: None,
+            effect: None,
             linked_from: None,
             created_at,
             completed_at: None,
@@ -137,6 +164,8 @@ impl Task {
         description: String,
         status: TaskStatus,
         estimated_pomos: u32,
+        effort: Option<Rating>,
+        effect: Option<Rating>,
         linked_from: Option<TaskId>,
         created_at: DateTime<Utc>,
         completed_at: Option<DateTime<Utc>>,
@@ -147,6 +176,8 @@ impl Task {
             description,
             status,
             estimated_pomos,
+            effort,
+            effect,
             linked_from,
             created_at,
             completed_at,
@@ -206,6 +237,35 @@ impl Task {
     #[must_use]
     pub fn estimated_pomos(&self) -> u32 {
         self.estimated_pomos
+    }
+
+    /// The expected effort rating, if the user has set one.
+    #[must_use]
+    pub fn effort(&self) -> Option<Rating> {
+        self.effort
+    }
+
+    /// The expected effect (impact) rating, if the user has set one.
+    #[must_use]
+    pub fn effect(&self) -> Option<Rating> {
+        self.effect
+    }
+
+    /// Sets or clears the effort and effect ratings.
+    pub fn set_ratings(&mut self, effort: Option<Rating>, effect: Option<Rating>) {
+        self.effort = effort;
+        self.effect = effect;
+    }
+
+    /// The task's value-for-effort score, when **both** ratings are set:
+    /// `effect − effort`, ranging from −2 (high effort, low effect — a money pit)
+    /// through 0 (balanced) to +2 (low effort, high effect — a quick win).
+    #[must_use]
+    pub fn value_score(&self) -> Option<i8> {
+        match (self.effect, self.effort) {
+            (Some(effect), Some(effort)) => Some(effect.level() - effort.level()),
+            _ => None,
+        }
     }
 
     /// The task this one was created as a follow-up to, if any.
@@ -307,6 +367,29 @@ mod tests {
             .expect("in-progress can complete");
         assert_eq!(task.status(), TaskStatus::Done);
         assert_eq!(task.completed_at(), Some(ts()));
+    }
+
+    #[test]
+    fn value_score_requires_both_ratings() {
+        let mut task = Task::new(TaskId::new(1), "rate me".to_owned(), 1, ts());
+        assert_eq!(task.value_score(), None);
+
+        task.set_ratings(Some(Rating::High), None);
+        assert_eq!(task.value_score(), None);
+
+        // Quick win: high effect for low effort.
+        task.set_ratings(Some(Rating::Low), Some(Rating::High));
+        assert_eq!(task.value_score(), Some(2));
+        // Money pit: high effort for low effect.
+        task.set_ratings(Some(Rating::High), Some(Rating::Low));
+        assert_eq!(task.value_score(), Some(-2));
+        // Balanced.
+        task.set_ratings(Some(Rating::Mid), Some(Rating::Mid));
+        assert_eq!(task.value_score(), Some(0));
+
+        // Ratings can be cleared again.
+        task.set_ratings(None, None);
+        assert_eq!(task.value_score(), None);
     }
 
     #[test]

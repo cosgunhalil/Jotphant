@@ -42,6 +42,8 @@ detail:
   progress: "İlerleme: {completed} pomo tamamlandı"
   estimate: "Tahmin"
   set: "Ayarla"
+  effort: "Efor"
+  effect: "Etki"
   follow_up_of: "Şunun devamı:"
   create_follow_up: "Devam görevi oluştur"
   description: "Açıklama"
@@ -55,6 +57,12 @@ detail:
   cancel: "İptal"
   edited_marker: "(düzenlendi)"
   close: "Kapat"
+
+rating:
+  none: "Yok"
+  low: "Düşük"
+  mid: "Orta"
+  high: "Yüksek"
 
 time:
   just_now: "az önce"

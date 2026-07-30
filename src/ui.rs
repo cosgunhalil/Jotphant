@@ -22,7 +22,7 @@ use crate::domain::repository::{
     BankRepository, NoteRepository, SessionRepository, TaskRepository, Transactional,
 };
 use crate::domain::session::{PomodoroSession, TimerPhase};
-use crate::domain::task::{Task, TaskStatus};
+use crate::domain::task::{Rating, Task, TaskStatus};
 use crate::localization::Localizer;
 use crate::notifier::Notifier;
 
@@ -113,6 +113,7 @@ enum Action {
     CloseDetail,
     StartNext(TaskId),
     SetEstimate(TaskId),
+    SetRatings(TaskId, Option<Rating>, Option<Rating>),
     CreateFollowUp(TaskId),
     OpenSettings,
     SaveSettings,
@@ -392,6 +393,13 @@ where
             }
             Action::SetEstimate(id) => {
                 if let Err(error) = self.service.set_task_estimate(id, self.detail_estimate) {
+                    self.status = Some(error_message(&self.localizer, &error));
+                }
+                self.refresh();
+                return;
+            }
+            Action::SetRatings(id, effort, effect) => {
+                if let Err(error) = self.service.set_task_ratings(id, effort, effect) {
                     self.status = Some(error_message(&self.localizer, &error));
                 }
                 self.refresh();
@@ -928,6 +936,18 @@ where
                         action = Some(Action::SetEstimate(selected_id));
                     }
                 });
+                ui.horizontal(|ui| {
+                    ui.label(self.localizer.t("detail.effort"));
+                    if let Some(new_effort) = rating_selector(ui, &self.localizer, task.effort()) {
+                        action = Some(Action::SetRatings(selected_id, new_effort, task.effect()));
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label(self.localizer.t("detail.effect"));
+                    if let Some(new_effect) = rating_selector(ui, &self.localizer, task.effect()) {
+                        action = Some(Action::SetRatings(selected_id, task.effort(), new_effect));
+                    }
+                });
                 if let Some(parent_id) = task.linked_from() {
                     let parent_title = self
                         .tasks
@@ -1203,6 +1223,20 @@ where
     }
 }
 
+/// A None/Low/Mid/High choice row; returns the new value when the user changed it.
+fn rating_selector(
+    ui: &mut egui::Ui,
+    localizer: &Localizer,
+    current: Option<Rating>,
+) -> Option<Option<Rating>> {
+    let mut value = current;
+    ui.selectable_value(&mut value, None, localizer.t("rating.none"));
+    ui.selectable_value(&mut value, Some(Rating::Low), localizer.t("rating.low"));
+    ui.selectable_value(&mut value, Some(Rating::Mid), localizer.t("rating.mid"));
+    ui.selectable_value(&mut value, Some(Rating::High), localizer.t("rating.high"));
+    (value != current).then_some(value)
+}
+
 /// Splits a comma-separated tag input into trimmed, non-empty tags.
 fn parse_tags(input: &str) -> Vec<String> {
     input
@@ -1359,7 +1393,13 @@ fn card_ui(
     now: DateTime<Utc>,
 ) -> Option<Action> {
     let mut action = None;
-    let inner = egui::Frame::group(ui.style()).show(ui, |ui| {
+    // Rated cards get a background blended toward their value score's hue
+    // (green = quick win, red = money pit); unrated cards keep the plain frame.
+    let mut frame = egui::Frame::group(ui.style());
+    if let Some(score) = task.value_score() {
+        frame = frame.fill(theme::value_tint(ui.visuals().panel_fill, score));
+    }
+    let inner = frame.show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.strong(task.title());
         ui.label(localizer.t_args(
@@ -1583,6 +1623,8 @@ mod tests {
             String::new(),
             status,
             1,
+            None,
+            None,
             None,
             created_at,
             None,
