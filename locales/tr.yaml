@@ -6,6 +6,7 @@ app:
   view_board: "Pano"
   view_notes: "Notlar"
   view_history: "Geçmiş"
+  view_timeline: "Zaman Çizelgesi"
 
 status:
   todo: "Yapılacak"
@@ -60,6 +61,9 @@ detail:
   cancel: "İptal"
   edited_marker: "(düzenlendi)"
   close: "Kapat"
+
+timeline:
+  empty_hint: "Bitiş tarihi olan açık görev yok — kart detayından bitiş tarihi ekleyin."
 
 rating:
   none: "Yok"

@@ -33,6 +33,7 @@ enum View {
     Board,
     Notes,
     History,
+    Timeline,
 }
 
 /// Editable form state for the settings screen (durations in minutes).
@@ -460,7 +461,7 @@ where
                 match view {
                     View::Notes => self.refresh_notes(),
                     View::History => self.refresh_report(),
-                    View::Board => {}
+                    View::Board | View::Timeline => self.refresh(),
                 }
                 return;
             }
@@ -674,6 +675,15 @@ where
                     .clicked()
                 {
                     action = Some(Action::SwitchView(View::History));
+                }
+                if ui
+                    .selectable_label(
+                        self.view == View::Timeline,
+                        self.localizer.t("app.view_timeline"),
+                    )
+                    .clicked()
+                {
+                    action = Some(Action::SwitchView(View::Timeline));
                 }
             });
             if let Some(message) = &self.status {
@@ -897,6 +907,9 @@ where
                                     }
                                 });
                         });
+                }
+                View::Timeline => {
+                    timeline_view(ui, &self.localizer, &self.tasks, today, &mut action);
                 }
             }
         });
@@ -1290,6 +1303,171 @@ where
             ui.ctx().request_repaint_after(Duration::from_millis(500));
         }
     }
+}
+
+/// Renders the read-only day-scale Gantt of open tasks that have a due date. Bars run
+/// from each task's `bar_start` to its due date; a vertical accent line marks today,
+/// and clicking a row opens the task's detail.
+fn timeline_view(
+    ui: &mut egui::Ui,
+    localizer: &Localizer,
+    tasks: &[Task],
+    today: NaiveDate,
+    action: &mut Option<Action>,
+) {
+    const LABEL_WIDTH: f32 = 180.0;
+    const DAY_WIDTH: f32 = 26.0;
+    const ROW_HEIGHT: f32 = 30.0;
+    const HEADER_HEIGHT: f32 = 24.0;
+
+    let mut rows: Vec<&Task> = tasks
+        .iter()
+        .filter(|task| !task.status().is_terminal() && task.due_date().is_some())
+        .collect();
+    if rows.is_empty() {
+        ui.label(localizer.t("timeline.empty_hint"));
+        return;
+    }
+    rows.sort_by_key(|task| (task.bar_start(), task.due_date()));
+
+    // The visible date range: everything scheduled plus today, padded on both sides.
+    let mut first = today;
+    let mut last = today;
+    for task in &rows {
+        first = first.min(task.bar_start());
+        if let Some(due) = task.due_date() {
+            last = last.max(due).max(task.bar_start());
+        }
+    }
+    let first = first - chrono::Duration::days(2);
+    let last = last + chrono::Duration::days(2);
+    let day_count = (last - first).num_days().max(1);
+
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "timeline spans are far below f32 precision limits"
+    )]
+    let days_f32 = |days: i64| -> f32 { days as f32 };
+    let x_of = |rect: &egui::Rect, date: NaiveDate| -> f32 {
+        rect.left() + LABEL_WIDTH + days_f32((date - first).num_days()) * DAY_WIDTH
+    };
+
+    egui::ScrollArea::both()
+        .id_salt("timeline")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "row counts are far below f32 precision limits"
+            )]
+            let row_count = rows.len() as f32;
+            let size = egui::vec2(
+                LABEL_WIDTH + days_f32(day_count + 1) * DAY_WIDTH,
+                HEADER_HEIGHT + row_count * ROW_HEIGHT,
+            );
+            let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+            let visuals = ui.visuals().clone();
+            let painter = ui.painter().with_clip_rect(rect);
+            let grid = visuals.widgets.noninteractive.bg_stroke.color;
+            let text_color = visuals.widgets.noninteractive.fg_stroke.color;
+            let accent = visuals.selection.stroke.color;
+
+            // Weekly grid lines and date labels along the header.
+            let mut day = first;
+            while day <= last {
+                let x = x_of(&rect, day);
+                painter.line_segment(
+                    [
+                        egui::pos2(x, rect.top() + HEADER_HEIGHT),
+                        egui::pos2(x, rect.bottom()),
+                    ],
+                    egui::Stroke::new(1.0, grid.gamma_multiply(0.5)),
+                );
+                painter.text(
+                    egui::pos2(x + 2.0, rect.top() + HEADER_HEIGHT / 2.0),
+                    egui::Align2::LEFT_CENTER,
+                    day.format("%m-%d").to_string(),
+                    egui::FontId::proportional(11.0),
+                    text_color,
+                );
+                day += chrono::Duration::days(7);
+            }
+            // Today, as a vertical accent line.
+            let today_x = x_of(&rect, today);
+            painter.line_segment(
+                [
+                    egui::pos2(today_x, rect.top()),
+                    egui::pos2(today_x, rect.bottom()),
+                ],
+                egui::Stroke::new(2.0, accent),
+            );
+
+            for (index, task) in rows.iter().enumerate() {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "row indexes are far below f32 precision limits"
+                )]
+                let top = rect.top() + HEADER_HEIGHT + index as f32 * ROW_HEIGHT;
+                let row_rect = egui::Rect::from_min_size(
+                    egui::pos2(rect.left(), top),
+                    egui::vec2(rect.width(), ROW_HEIGHT),
+                );
+
+                // Task title in the label column, clipped to its cell.
+                let label_rect = egui::Rect::from_min_size(
+                    egui::pos2(rect.left(), top),
+                    egui::vec2(LABEL_WIDTH - 8.0, ROW_HEIGHT),
+                );
+                painter.with_clip_rect(label_rect).text(
+                    egui::pos2(rect.left() + 4.0, top + ROW_HEIGHT / 2.0),
+                    egui::Align2::LEFT_CENTER,
+                    task.title(),
+                    egui::FontId::proportional(13.0),
+                    text_color,
+                );
+
+                // The bar, tinted by the task's value score when rated.
+                let due = task.due_date().unwrap_or_else(|| task.bar_start());
+                let start = task.bar_start().min(due);
+                let bar_rect = egui::Rect::from_min_max(
+                    egui::pos2(x_of(&rect, start), top + 6.0),
+                    egui::pos2(
+                        x_of(&rect, due + chrono::Duration::days(1)),
+                        top + ROW_HEIGHT - 6.0,
+                    ),
+                );
+                let base = visuals.widgets.inactive.bg_fill;
+                let fill = match task.value_score() {
+                    Some(score) => theme::value_tint(base, score),
+                    None => base,
+                };
+                let stroke_color = if task.is_overdue(today) {
+                    visuals.error_fg_color
+                } else {
+                    accent
+                };
+                painter.rect_filled(bar_rect, egui::CornerRadius::same(4), fill);
+                painter.rect_stroke(
+                    bar_rect,
+                    egui::CornerRadius::same(4),
+                    egui::Stroke::new(1.5, stroke_color),
+                    egui::StrokeKind::Inside,
+                );
+
+                // The whole row is clickable and opens the task's detail.
+                let response = ui.interact(
+                    row_rect,
+                    egui::Id::new(("timeline_row", task.id().value())),
+                    egui::Sense::click(),
+                );
+                if response.hovered() {
+                    painter.rect_filled(row_rect, 0.0, accent.gamma_multiply(0.06));
+                }
+                if response.clicked() {
+                    *action = Some(Action::Open(task.id()));
+                }
+            }
+        });
 }
 
 /// Converts a domain date to the picker's jiff date. Any realistic calendar date

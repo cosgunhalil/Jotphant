@@ -6,6 +6,7 @@ app:
   view_board: "Lövhə"
   view_notes: "Qeydlər"
   view_history: "Tarixçə"
+  view_timeline: "Zaman qrafiki"
 
 status:
   todo: "Ediləcək"
@@ -60,6 +61,9 @@ detail:
   cancel: "Ləğv et"
   edited_marker: "(düzəliş edilib)"
   close: "Bağla"
+
+timeline:
+  empty_hint: "Son tarixi olan açıq tapşırıq yoxdur — kart detalından son tarix əlavə edin."
 
 rating:
   none: "Yoxdur"

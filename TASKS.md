@@ -126,7 +126,7 @@ day-scale Timeline (Gantt) view of open tasks with a today line.
 - [x] G1 Domain + storage + service: start/due dates, due-before-start validation,
       `is_overdue`/`bar_start`, migration v5, `set_task_schedule` (test-first)
 - [x] G2 Detail UI: date pickers (egui_extras), overdue badge on cards, localization
-- [ ] G3 Timeline view: Gantt of open tasks, today line, click-to-open
+- [x] G3 Timeline view: Gantt of open tasks, today line, click-to-open
 
 ## Docs & wrap-up
 

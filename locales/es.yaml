@@ -6,6 +6,7 @@ app:
   view_board: "Tablero"
   view_notes: "Notas"
   view_history: "Historial"
+  view_timeline: "Cronograma"
 
 status:
   todo: "Por hacer"
@@ -60,6 +61,9 @@ detail:
   cancel: "Cancelar"
   edited_marker: "(editado)"
   close: "Cerrar"
+
+timeline:
+  empty_hint: "No hay tareas abiertas con fecha límite; añádelas desde el detalle de una tarjeta."
 
 rating:
   none: "Ninguno"

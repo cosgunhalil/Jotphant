@@ -11,6 +11,7 @@ app:
   view_board: "Board"
   view_notes: "Notes"
   view_history: "History"
+  view_timeline: "Timeline"
 
 status:
   todo: "Todo"
@@ -65,6 +66,9 @@ detail:
   cancel: "Cancel"
   edited_marker: "(edited)"
   close: "Close"
+
+timeline:
+  empty_hint: "No open tasks with a due date yet — set due dates from a card's detail."
 
 rating:
   none: "None"
