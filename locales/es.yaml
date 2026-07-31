@@ -36,6 +36,7 @@ card:
   skip_break: "Saltar descanso"
   start_phase: "Iniciar {phase}"
   done_marker: "hecho"
+  due: "Vence: {date}"
 
 detail:
   status: "Estado: {status}"
@@ -44,6 +45,8 @@ detail:
   set: "Fijar"
   effort: "Esfuerzo"
   effect: "Efecto"
+  start_date: "Fecha de inicio"
+  due_date: "Fecha límite"
   follow_up_of: "Continuación de:"
   create_follow_up: "Crear continuación"
   description: "Descripción"
@@ -125,5 +128,6 @@ error:
   no_running_session: "la tarea no tiene una sesión en curso"
   reward_overflow: "la recompensa es demasiado grande"
   invalid_transition: "ese cambio de estado no está permitido"
+  invalid_schedule: "la fecha límite es anterior a la fecha de inicio"
   storage: "error de almacenamiento: {message}"
   title_required: "el título de la tarea es obligatorio"

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use rusqlite::{Connection, Row, params};
 
 use crate::domain::bank::{BankTransaction, BankTransactionType};
@@ -63,7 +63,7 @@ impl SqliteStore {
 
 // --- Column lists (kept in one place so SELECTs and row mappers stay in sync) ---
 
-const TASK_COLUMNS: &str = "id, title, description, status, estimated_pomos, effort, effect, linked_from_task_id, created_at, completed_at";
+const TASK_COLUMNS: &str = "id, title, description, status, estimated_pomos, effort, effect, start_date, due_date, linked_from_task_id, created_at, completed_at";
 const SESSION_COLUMNS: &str =
     "id, task_id, phase, status, configured_duration_seconds, started_at, finished_at";
 const BANK_COLUMNS: &str = "id, task_id, amount_pomos, transaction_type, created_at";
@@ -159,6 +159,16 @@ pub(crate) fn datetime_to_str(value: DateTime<Utc>) -> String {
     value.to_rfc3339()
 }
 
+fn date_to_str(value: NaiveDate) -> String {
+    value.format("%Y-%m-%d").to_string()
+}
+
+fn date_from_str(value: &str) -> Result<NaiveDate, RepositoryError> {
+    NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|error| RepositoryError::Backend {
+        message: format!("invalid date {value:?}: {error}"),
+    })
+}
+
 pub(crate) fn datetime_from_str(value: &str) -> Result<DateTime<Utc>, RepositoryError> {
     DateTime::parse_from_rfc3339(value)
         .map(|dt| dt.with_timezone(&Utc))
@@ -200,6 +210,14 @@ fn row_to_task(row: &Row) -> Result<Task, RepositoryError> {
         .get::<_, Option<String>>("effect")?
         .map(|value| rating_from_str(&value))
         .transpose()?;
+    let start_date = row
+        .get::<_, Option<String>>("start_date")?
+        .map(|value| date_from_str(&value))
+        .transpose()?;
+    let due_date = row
+        .get::<_, Option<String>>("due_date")?
+        .map(|value| date_from_str(&value))
+        .transpose()?;
     Ok(Task::from_fields(
         TaskId::new(row.get("id")?),
         row.get("title")?,
@@ -208,6 +226,8 @@ fn row_to_task(row: &Row) -> Result<Task, RepositoryError> {
         to_u32(row.get("estimated_pomos")?)?,
         effort,
         effect,
+        start_date,
+        due_date,
         row.get::<_, Option<i64>>("linked_from_task_id")?
             .map(TaskId::new),
         datetime_from_str(&row.get::<_, String>("created_at")?)?,
@@ -297,8 +317,8 @@ impl TaskRepository for SqliteStore {
         let affected = self.conn.execute(
             "UPDATE tasks
              SET title = ?2, description = ?3, status = ?4, estimated_pomos = ?5,
-                 effort = ?6, effect = ?7, linked_from_task_id = ?8, created_at = ?9,
-                 completed_at = ?10
+                 effort = ?6, effect = ?7, start_date = ?8, due_date = ?9,
+                 linked_from_task_id = ?10, created_at = ?11, completed_at = ?12
              WHERE id = ?1",
             params![
                 task.id().value(),
@@ -308,6 +328,8 @@ impl TaskRepository for SqliteStore {
                 i64::from(task.estimated_pomos()),
                 task.effort().map(rating_to_str),
                 task.effect().map(rating_to_str),
+                task.start_date().map(date_to_str),
+                task.due_date().map(date_to_str),
                 task.linked_from().map(TaskId::value),
                 datetime_to_str(task.created_at()),
                 task.completed_at().map(datetime_to_str),
@@ -497,6 +519,24 @@ mod tests {
         let cleared = store.get_task(task.id()).expect("get").expect("exists");
         assert_eq!(cleared.effort(), None);
         assert_eq!(cleared.effect(), None);
+    }
+
+    #[test]
+    fn schedule_dates_round_trip() {
+        let store = store();
+        let mut task = store.create_task("schedule me", 1, ts()).expect("create");
+        assert_eq!(task.start_date(), None);
+        assert_eq!(task.due_date(), None);
+
+        let start = NaiveDate::from_ymd_opt(2026, 8, 1).expect("valid date");
+        let due = NaiveDate::from_ymd_opt(2026, 8, 15).expect("valid date");
+        task.set_schedule(Some(start), Some(due))
+            .expect("valid window");
+        store.update_task(&task).expect("update");
+
+        let fetched = store.get_task(task.id()).expect("get").expect("exists");
+        assert_eq!(fetched.start_date(), Some(start));
+        assert_eq!(fetched.due_date(), Some(due));
     }
 
     #[test]

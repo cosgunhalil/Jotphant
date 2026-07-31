@@ -7,7 +7,7 @@ use rusqlite::Connection;
 use crate::domain::repository::RepositoryError;
 
 /// The schema version this build expects.
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 /// Version 1: the core tasks / sessions / bank tables.
 const CREATE_V1: &str = r"
@@ -75,6 +75,12 @@ ALTER TABLE tasks ADD COLUMN effort TEXT;
 ALTER TABLE tasks ADD COLUMN effect TEXT;
 ";
 
+/// Version 5: optional planned start and due dates on tasks (the timeline).
+const ALTER_V5: &str = "
+ALTER TABLE tasks ADD COLUMN start_date TEXT;
+ALTER TABLE tasks ADD COLUMN due_date TEXT;
+";
+
 /// Applies any pending migrations to `conn`, forward only.
 ///
 /// # Errors
@@ -92,6 +98,9 @@ pub fn migrate(conn: &Connection) -> Result<(), RepositoryError> {
     }
     if version < 4 {
         conn.execute_batch(ALTER_V4)?;
+    }
+    if version < 5 {
+        conn.execute_batch(ALTER_V5)?;
     }
     if version < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -116,6 +125,10 @@ mod tests {
         // All tables usable.
         assert!(conn.prepare("SELECT description FROM tasks").is_ok());
         assert!(conn.prepare("SELECT effort, effect FROM tasks").is_ok());
+        assert!(
+            conn.prepare("SELECT start_date, due_date FROM tasks")
+                .is_ok()
+        );
         assert!(conn.prepare("SELECT id FROM notes").is_ok());
         assert!(conn.prepare("SELECT tag FROM note_tags").is_ok());
     }
@@ -136,6 +149,10 @@ mod tests {
         assert_eq!(user_version(&conn), SCHEMA_VERSION);
         assert!(conn.prepare("SELECT description FROM tasks").is_ok());
         assert!(conn.prepare("SELECT effort, effect FROM tasks").is_ok());
+        assert!(
+            conn.prepare("SELECT start_date, due_date FROM tasks")
+                .is_ok()
+        );
         assert!(conn.prepare("SELECT id FROM notes").is_ok());
     }
 

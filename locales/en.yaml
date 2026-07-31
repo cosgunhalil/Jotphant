@@ -41,6 +41,7 @@ card:
   skip_break: "Skip break"
   start_phase: "Start {phase}"
   done_marker: "done"
+  due: "Due {date}"
 
 detail:
   status: "Status: {status}"
@@ -49,6 +50,8 @@ detail:
   set: "Set"
   effort: "Effort"
   effect: "Effect"
+  start_date: "Start date"
+  due_date: "Due date"
   follow_up_of: "Follow-up of:"
   create_follow_up: "Create follow-up"
   description: "Description"
@@ -130,5 +133,6 @@ error:
   no_running_session: "no running session for the task"
   reward_overflow: "reward amount is too large"
   invalid_transition: "that status change is not allowed"
+  invalid_schedule: "the due date is before the start date"
   storage: "storage error: {message}"
   title_required: "task title is required"

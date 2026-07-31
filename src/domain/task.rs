@@ -1,6 +1,6 @@
 //! Tasks and their lifecycle state machine.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 
 use crate::domain::ids::TaskId;
 
@@ -115,6 +115,11 @@ impl Rating {
     }
 }
 
+/// Error returned when a task's due date would fall before its start date.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the due date is before the start date")]
+pub struct InvalidSchedule;
+
 /// A unit of work whose focused effort is measured in pomodoros.
 ///
 /// Completed effort is never stored on the task; it is derived from session history
@@ -128,6 +133,8 @@ pub struct Task {
     estimated_pomos: u32,
     effort: Option<Rating>,
     effect: Option<Rating>,
+    start_date: Option<NaiveDate>,
+    due_date: Option<NaiveDate>,
     linked_from: Option<TaskId>,
     created_at: DateTime<Utc>,
     completed_at: Option<DateTime<Utc>>,
@@ -145,6 +152,8 @@ impl Task {
             estimated_pomos,
             effort: None,
             effect: None,
+            start_date: None,
+            due_date: None,
             linked_from: None,
             created_at,
             completed_at: None,
@@ -166,6 +175,8 @@ impl Task {
         estimated_pomos: u32,
         effort: Option<Rating>,
         effect: Option<Rating>,
+        start_date: Option<NaiveDate>,
+        due_date: Option<NaiveDate>,
         linked_from: Option<TaskId>,
         created_at: DateTime<Utc>,
         completed_at: Option<DateTime<Utc>>,
@@ -178,6 +189,8 @@ impl Task {
             estimated_pomos,
             effort,
             effect,
+            start_date,
+            due_date,
             linked_from,
             created_at,
             completed_at,
@@ -266,6 +279,55 @@ impl Task {
             (Some(effect), Some(effort)) => Some(effect.level() - effort.level()),
             _ => None,
         }
+    }
+
+    /// The planned start date, if scheduled.
+    #[must_use]
+    pub fn start_date(&self) -> Option<NaiveDate> {
+        self.start_date
+    }
+
+    /// The due date, if set.
+    #[must_use]
+    pub fn due_date(&self) -> Option<NaiveDate> {
+        self.due_date
+    }
+
+    /// Sets or clears the planned start and due dates.
+    ///
+    /// # Errors
+    /// Returns [`InvalidSchedule`] if both are set and the due date is before the
+    /// start date; the task is left unchanged.
+    pub fn set_schedule(
+        &mut self,
+        start_date: Option<NaiveDate>,
+        due_date: Option<NaiveDate>,
+    ) -> Result<(), InvalidSchedule> {
+        if let (Some(start), Some(due)) = (start_date, due_date)
+            && due < start
+        {
+            return Err(InvalidSchedule);
+        }
+        self.start_date = start_date;
+        self.due_date = due_date;
+        Ok(())
+    }
+
+    /// Whether the task is past its due date and still unfinished, as of `today`.
+    #[must_use]
+    pub fn is_overdue(&self, today: NaiveDate) -> bool {
+        match self.due_date {
+            Some(due) => due < today && !self.status.is_terminal(),
+            None => false,
+        }
+    }
+
+    /// The date the task's timeline bar begins: the planned start date, falling back
+    /// to the day the task was created.
+    #[must_use]
+    pub fn bar_start(&self) -> NaiveDate {
+        self.start_date
+            .unwrap_or_else(|| self.created_at.date_naive())
     }
 
     /// The task this one was created as a follow-up to, if any.
@@ -390,6 +452,61 @@ mod tests {
         // Ratings can be cleared again.
         task.set_ratings(None, None);
         assert_eq!(task.value_score(), None);
+    }
+
+    #[test]
+    fn schedule_rejects_due_before_start() {
+        let mut task = Task::new(TaskId::new(1), "plan me".to_owned(), 1, ts());
+        let start = NaiveDate::from_ymd_opt(2026, 8, 10).expect("valid date");
+        let due = NaiveDate::from_ymd_opt(2026, 8, 3).expect("valid date");
+
+        assert_eq!(
+            task.set_schedule(Some(start), Some(due)),
+            Err(InvalidSchedule)
+        );
+        // The failed call changed nothing.
+        assert_eq!(task.start_date(), None);
+        assert_eq!(task.due_date(), None);
+
+        // A valid window (and single-sided dates) are accepted, and clearable.
+        task.set_schedule(Some(due), Some(start))
+            .expect("valid window");
+        assert_eq!(task.start_date(), Some(due));
+        assert_eq!(task.due_date(), Some(start));
+        task.set_schedule(None, Some(start)).expect("due only");
+        task.set_schedule(None, None).expect("cleared");
+    }
+
+    #[test]
+    fn overdue_requires_a_passed_due_date_and_an_open_task() {
+        let mut task = Task::new(TaskId::new(1), "deadline".to_owned(), 1, ts());
+        let due = NaiveDate::from_ymd_opt(2026, 8, 3).expect("valid date");
+        let before = NaiveDate::from_ymd_opt(2026, 8, 1).expect("valid date");
+        let after = NaiveDate::from_ymd_opt(2026, 8, 5).expect("valid date");
+
+        // No due date -> never overdue.
+        assert!(!task.is_overdue(after));
+
+        task.set_schedule(None, Some(due)).expect("set due");
+        assert!(!task.is_overdue(before));
+        assert!(!task.is_overdue(due)); // due today is not yet overdue
+        assert!(task.is_overdue(after));
+
+        // Finished tasks are never overdue.
+        task.apply_transition(TaskStatus::InProgress, ts())
+            .expect("start");
+        task.apply_transition(TaskStatus::Done, ts()).expect("done");
+        assert!(!task.is_overdue(after));
+    }
+
+    #[test]
+    fn bar_start_falls_back_to_the_creation_day() {
+        let mut task = Task::new(TaskId::new(1), "bar".to_owned(), 1, ts());
+        assert_eq!(task.bar_start(), ts().date_naive());
+
+        let start = NaiveDate::from_ymd_opt(2026, 8, 10).expect("valid date");
+        task.set_schedule(Some(start), None).expect("set start");
+        assert_eq!(task.bar_start(), start);
     }
 
     #[test]

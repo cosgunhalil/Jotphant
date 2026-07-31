@@ -1,7 +1,7 @@
 //! Application-service errors.
 
 use crate::domain::repository::RepositoryError;
-use crate::domain::task::InvalidTransition;
+use crate::domain::task::{InvalidSchedule, InvalidTransition};
 
 /// An error from an application service operation.
 #[derive(Debug, thiserror::Error)]
@@ -24,6 +24,9 @@ pub enum Error {
     /// A task state transition was rejected.
     #[error(transparent)]
     Transition(#[from] InvalidTransition),
+    /// A due date fell before its start date.
+    #[error(transparent)]
+    Schedule(#[from] InvalidSchedule),
     /// The storage backend failed.
     #[error(transparent)]
     Repository(#[from] RepositoryError),

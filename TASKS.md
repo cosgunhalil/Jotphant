@@ -118,6 +118,16 @@ value score (effect − effort: green quick-win → red money-pit).
       migration v4, `set_task_ratings` (test-first)
 - [x] E2 UI + localization: detail-modal selectors, gradient card fill, catalog strings
 
+## M9 — Due dates & timeline
+
+Optional planned start / due dates per task (date-only, overdue badge) and a read-only
+day-scale Timeline (Gantt) view of open tasks with a today line.
+
+- [x] G1 Domain + storage + service: start/due dates, due-before-start validation,
+      `is_overdue`/`bar_start`, migration v5, `set_task_schedule` (test-first)
+- [x] G2 Detail UI: date pickers (egui_extras), overdue badge on cards, localization
+- [ ] G3 Timeline view: Gantt of open tasks, today line, click-to-open
+
 ## Docs & wrap-up
 
 - [x] D1 README.md, CONTRIBUTING.md, and auto-changelog scaffold (CHANGELOG.md)

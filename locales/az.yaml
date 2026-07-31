@@ -36,6 +36,7 @@ card:
   skip_break: "Fasiləni ötür"
   start_phase: "Başlat: {phase}"
   done_marker: "tamamlanıb"
+  due: "Son tarix: {date}"
 
 detail:
   status: "Status: {status}"
@@ -44,6 +45,8 @@ detail:
   set: "Təyin et"
   effort: "Səy"
   effect: "Təsir"
+  start_date: "Başlama tarixi"
+  due_date: "Son tarix"
   follow_up_of: "Bunun davamı:"
   create_follow_up: "Davam tapşırığı yarat"
   description: "Təsvir"
@@ -125,5 +128,6 @@ error:
   no_running_session: "tapşırığın işləyən seansı yoxdur"
   reward_overflow: "mükafat miqdarı çox böyükdür"
   invalid_transition: "bu status dəyişikliyinə icazə verilmir"
+  invalid_schedule: "son tarix başlama tarixindən əvvəl ola bilməz"
   storage: "yaddaş xətası: {message}"
   title_required: "tapşırıq başlığı tələb olunur"

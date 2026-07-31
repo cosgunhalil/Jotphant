@@ -9,9 +9,10 @@ pub mod theme;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, NaiveDate, Utc};
 use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+use egui_extras::DatePickerButton;
 
 use crate::app::{TaskEffort, TaskService};
 use crate::domain::config::{AppConfig, Language, ThemeChoice};
@@ -114,6 +115,7 @@ enum Action {
     StartNext(TaskId),
     SetEstimate(TaskId),
     SetRatings(TaskId, Option<Rating>, Option<Rating>),
+    SetSchedule(TaskId),
     CreateFollowUp(TaskId),
     OpenSettings,
     SaveSettings,
@@ -157,6 +159,8 @@ pub struct JotphantApp<S> {
     selected: Option<TaskId>,
     detail_description: String,
     detail_estimate: u32,
+    detail_start: Option<NaiveDate>,
+    detail_due: Option<NaiveDate>,
     settings: Option<SettingsDraft>,
     view: View,
     notes: Vec<Note>,
@@ -216,6 +220,8 @@ where
             selected: None,
             detail_description: String::new(),
             detail_estimate: 0,
+            detail_start: None,
+            detail_due: None,
             settings: None,
             view: View::Board,
             notes: Vec::new(),
@@ -314,13 +320,15 @@ where
         }
     }
 
-    /// Opens a task's detail: loads its description, estimate, and jots.
+    /// Opens a task's detail: loads its description, estimate, schedule, and jots.
     fn open_task(&mut self, id: TaskId) {
         let task = self.tasks.iter().find(|task| task.id() == id);
         self.detail_description = task
             .map(|task| task.description().to_owned())
             .unwrap_or_default();
         self.detail_estimate = task.map_or(0, Task::estimated_pomos);
+        self.detail_start = task.and_then(Task::start_date);
+        self.detail_due = task.and_then(Task::due_date);
         self.task_notes = self.service.task_notes(id).unwrap_or_default();
         self.quick_jot_text.clear();
         self.selected = Some(id);
@@ -403,6 +411,22 @@ where
                     self.status = Some(error_message(&self.localizer, &error));
                 }
                 self.refresh();
+                return;
+            }
+            Action::SetSchedule(id) => {
+                if let Err(error) =
+                    self.service
+                        .set_task_schedule(id, self.detail_start, self.detail_due)
+                {
+                    self.status = Some(error_message(&self.localizer, &error));
+                }
+                self.refresh();
+                // Re-sync the drafts with what was actually persisted (a rejected
+                // window must not linger in the pickers).
+                if let Some(task) = self.tasks.iter().find(|task| task.id() == id) {
+                    self.detail_start = task.start_date();
+                    self.detail_due = task.due_date();
+                }
                 return;
             }
             Action::CreateFollowUp(id) => {
@@ -600,6 +624,7 @@ where
         }
 
         let now = Utc::now();
+        let today = Local::now().date_naive();
         let ui_time = ui.ctx().input(|input| input.time);
         self.tick(now, ui_time);
 
@@ -714,6 +739,7 @@ where
                                                         session,
                                                         pending,
                                                         flash,
+                                                        today,
                                                         now,
                                                     )
                                                 })
@@ -727,6 +753,7 @@ where
                                                     session,
                                                     pending,
                                                     flash,
+                                                    today,
                                                     now,
                                                 )
                                             };
@@ -946,6 +973,48 @@ where
                     ui.label(self.localizer.t("detail.effect"));
                     if let Some(new_effect) = rating_selector(ui, &self.localizer, task.effect()) {
                         action = Some(Action::SetRatings(selected_id, task.effort(), new_effect));
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label(self.localizer.t("detail.start_date"));
+                    let mut has_start = self.detail_start.is_some();
+                    if ui.checkbox(&mut has_start, "").changed() {
+                        self.detail_start = has_start.then(|| Local::now().date_naive());
+                        action = Some(Action::SetSchedule(selected_id));
+                    }
+                    if let Some(current) = self.detail_start {
+                        let mut picker_date = to_picker_date(current);
+                        let response = ui.add(
+                            DatePickerButton::new(&mut picker_date).id_salt("start_date_picker"),
+                        );
+                        if response.changed()
+                            && let Some(updated) = from_picker_date(picker_date)
+                            && updated != current
+                        {
+                            self.detail_start = Some(updated);
+                            action = Some(Action::SetSchedule(selected_id));
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label(self.localizer.t("detail.due_date"));
+                    let mut has_due = self.detail_due.is_some();
+                    if ui.checkbox(&mut has_due, "").changed() {
+                        self.detail_due = has_due.then(|| Local::now().date_naive());
+                        action = Some(Action::SetSchedule(selected_id));
+                    }
+                    if let Some(current) = self.detail_due {
+                        let mut picker_date = to_picker_date(current);
+                        let response = ui.add(
+                            DatePickerButton::new(&mut picker_date).id_salt("due_date_picker"),
+                        );
+                        if response.changed()
+                            && let Some(updated) = from_picker_date(picker_date)
+                            && updated != current
+                        {
+                            self.detail_due = Some(updated);
+                            action = Some(Action::SetSchedule(selected_id));
+                        }
                     }
                 });
                 if let Some(parent_id) = task.linked_from() {
@@ -1223,6 +1292,31 @@ where
     }
 }
 
+/// Converts a domain date to the picker's jiff date. Any realistic calendar date
+/// converts losslessly; out-of-range values fall back to jiff's default date.
+fn to_picker_date(date: NaiveDate) -> jiff::civil::Date {
+    use chrono::Datelike;
+    match (
+        i16::try_from(date.year()),
+        i8::try_from(date.month()),
+        i8::try_from(date.day()),
+    ) {
+        (Ok(year), Ok(month), Ok(day)) => {
+            jiff::civil::Date::new(year, month, day).unwrap_or_default()
+        }
+        _ => jiff::civil::Date::default(),
+    }
+}
+
+/// Converts a picker (jiff) date back to a domain date.
+fn from_picker_date(date: jiff::civil::Date) -> Option<NaiveDate> {
+    NaiveDate::from_ymd_opt(
+        i32::from(date.year()),
+        u32::try_from(date.month()).ok()?,
+        u32::try_from(date.day()).ok()?,
+    )
+}
+
 /// A None/Low/Mid/High choice row; returns the new value when the user changed it.
 fn rating_selector(
     ui: &mut egui::Ui,
@@ -1390,6 +1484,7 @@ fn card_ui(
     active_session: Option<&PomodoroSession>,
     pending: Option<TimerPhase>,
     flash: Option<f32>,
+    today: NaiveDate,
     now: DateTime<Utc>,
 ) -> Option<Action> {
     let mut action = None;
@@ -1409,6 +1504,15 @@ fn card_ui(
                 ("estimated", task.estimated_pomos().to_string()),
             ],
         ));
+        if let Some(due) = task.due_date() {
+            let text =
+                localizer.t_args("card.due", &[("date", due.format("%Y-%m-%d").to_string())]);
+            if task.is_overdue(today) {
+                ui.colored_label(ui.visuals().error_fg_color, text);
+            } else {
+                ui.weak(text);
+            }
+        }
 
         match task.status() {
             TaskStatus::Todo => {
@@ -1581,6 +1685,7 @@ fn error_message(localizer: &Localizer, error: &crate::app::Error) -> String {
         Error::NoRunningSession => localizer.t("error.no_running_session").to_owned(),
         Error::RewardOverflow => localizer.t("error.reward_overflow").to_owned(),
         Error::Transition(_) => localizer.t("error.invalid_transition").to_owned(),
+        Error::Schedule(_) => localizer.t("error.invalid_schedule").to_owned(),
         Error::Repository(inner) => {
             localizer.t_args("error.storage", &[("message", inner.to_string())])
         }
@@ -1623,6 +1728,8 @@ mod tests {
             String::new(),
             status,
             1,
+            None,
+            None,
             None,
             None,
             None,

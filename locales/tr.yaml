@@ -36,6 +36,7 @@ card:
   skip_break: "Molayı atla"
   start_phase: "Başlat: {phase}"
   done_marker: "tamamlandı"
+  due: "Bitiş: {date}"
 
 detail:
   status: "Durum: {status}"
@@ -44,6 +45,8 @@ detail:
   set: "Ayarla"
   effort: "Efor"
   effect: "Etki"
+  start_date: "Başlangıç tarihi"
+  due_date: "Bitiş tarihi"
   follow_up_of: "Şunun devamı:"
   create_follow_up: "Devam görevi oluştur"
   description: "Açıklama"
@@ -125,5 +128,6 @@ error:
   no_running_session: "görevin çalışan bir seansı yok"
   reward_overflow: "ödül miktarı çok büyük"
   invalid_transition: "bu durum değişikliğine izin verilmiyor"
+  invalid_schedule: "bitiş tarihi başlangıç tarihinden önce olamaz"
   storage: "depolama hatası: {message}"
   title_required: "görev başlığı gerekli"

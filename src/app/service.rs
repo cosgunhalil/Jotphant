@@ -295,6 +295,23 @@ where
         Ok(task)
     }
 
+    /// Sets or clears a task's planned start and due dates.
+    ///
+    /// # Errors
+    /// Returns [`Error::TaskNotFound`], [`Error::Schedule`] if the due date is before
+    /// the start date, or a storage error.
+    pub fn set_task_schedule(
+        &self,
+        id: TaskId,
+        start_date: Option<chrono::NaiveDate>,
+        due_date: Option<chrono::NaiveDate>,
+    ) -> Result<Task, Error> {
+        let mut task = self.store.get_task(id)?.ok_or(Error::TaskNotFound)?;
+        task.set_schedule(start_date, due_date)?;
+        self.store.update_task(&task)?;
+        Ok(task)
+    }
+
     /// Updates a task's pomodoro estimate.
     ///
     /// # Errors
@@ -1080,6 +1097,25 @@ mod tests {
             .find(|row| row.task().id() == idle.id())
             .expect("idle row");
         assert_eq!(idle_row.completed_pomos(), 0);
+    }
+
+    #[test]
+    fn task_schedule_persists_and_rejects_invalid_windows() {
+        let service = service();
+        let task = service.create_task("plan", 1, ts()).expect("create");
+        let start = chrono::NaiveDate::from_ymd_opt(2026, 8, 1).expect("valid date");
+        let due = chrono::NaiveDate::from_ymd_opt(2026, 8, 15).expect("valid date");
+
+        let scheduled = service
+            .set_task_schedule(task.id(), Some(start), Some(due))
+            .expect("schedule");
+        assert_eq!(scheduled.start_date(), Some(start));
+        assert_eq!(scheduled.due_date(), Some(due));
+
+        let error = service
+            .set_task_schedule(task.id(), Some(due), Some(start))
+            .expect_err("due before start");
+        assert!(matches!(error, Error::Schedule(_)));
     }
 
     #[test]

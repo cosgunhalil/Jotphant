@@ -25,4 +25,4 @@ pub use repository::{
     Transactional,
 };
 pub use session::{PomodoroSession, SessionStatus, TimerPhase};
-pub use task::{InvalidTransition, Rating, Task, TaskStatus};
+pub use task::{InvalidSchedule, InvalidTransition, Rating, Task, TaskStatus};
