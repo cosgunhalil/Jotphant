@@ -25,7 +25,6 @@ use crate::domain::repository::{
 use crate::domain::session::{PomodoroSession, TimerPhase};
 use crate::domain::task::{Rating, Task, TaskStatus};
 use crate::localization::Localizer;
-use crate::notifier::Notifier;
 
 /// Which top-level screen is showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,7 +145,6 @@ type SaveConfig = Box<dyn Fn(&AppConfig) -> Result<(), String>>;
 pub struct JotphantApp<S> {
     service: TaskService<S>,
     save_config: SaveConfig,
-    notifier: Box<dyn Notifier>,
     new_title: String,
     new_estimate: u32,
     tasks: Vec<Task>,
@@ -194,18 +192,13 @@ impl<S> JotphantApp<S>
 where
     S: TaskRepository + SessionRepository + BankRepository + NoteRepository + Transactional,
 {
-    /// Builds the app over an injected service, config-save function, and notifier,
-    /// loading the initial state.
-    pub fn new(
-        service: TaskService<S>,
-        save_config: SaveConfig,
-        notifier: Box<dyn Notifier>,
-    ) -> Self {
+    /// Builds the app over an injected service and config-save function, loading the
+    /// initial state.
+    pub fn new(service: TaskService<S>, save_config: SaveConfig) -> Self {
         let language = service.config().language();
         let mut app = Self {
             service,
             save_config,
-            notifier,
             localizer: Localizer::new(language),
             applied_language: language,
             new_title: String::new(),
@@ -352,10 +345,10 @@ where
         self.note_backlinks = self.service.note_backlinks(id).unwrap_or_default();
     }
 
-    /// Auto-advances the Pomodoro cycle once a phase's countdown reaches zero, and
-    /// notifies the user of the transition. `ui_time` is egui's clock, used to start the
-    /// completion flash.
-    fn tick(&mut self, now: DateTime<Utc>, ui_time: f64) {
+    /// Auto-advances the Pomodoro cycle once a phase's countdown reaches zero, asking
+    /// the OS to flash the taskbar for attention. `ui_time` is egui's clock, used to
+    /// start the completion flash.
+    fn tick(&mut self, ctx: &egui::Context, now: DateTime<Utc>, ui_time: f64) {
         let expired = match (&self.active_task, &self.active_session) {
             (Some(task), Some(session)) if session.is_expired(now) => {
                 Some((task.id(), session.phase()))
@@ -367,9 +360,10 @@ where
                 self.status = Some(error_message(&self.localizer, &error));
             }
             self.refresh();
-            let started = self.active_session.as_ref().map(PomodoroSession::phase);
-            let (summary, body) = notification_message(&self.localizer, ended_phase, started);
-            self.notifier.notify(&summary, &body);
+            // Flash the taskbar so a backgrounded window still signals the transition.
+            ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(
+                egui::UserAttentionType::Informational,
+            ));
             // Celebrate a completed focus pomo with a brief flash on its card.
             if ended_phase == TimerPhase::Focus {
                 self.flash = Some((task_id, ui_time));
@@ -627,7 +621,8 @@ where
         let now = Utc::now();
         let today = Local::now().date_naive();
         let ui_time = ui.ctx().input(|input| input.time);
-        self.tick(now, ui_time);
+        let ctx = ui.ctx().clone();
+        self.tick(&ctx, now, ui_time);
 
         // Expire the pomo-complete flash, repainting while it plays.
         if let Some((_, started)) = self.flash {
@@ -1825,34 +1820,6 @@ fn advance_label(localizer: &Localizer, phase: TimerPhase) -> &str {
     })
 }
 
-/// The localized notification for a phase transition.
-fn notification_message(
-    localizer: &Localizer,
-    ended: TimerPhase,
-    started: Option<TimerPhase>,
-) -> (String, String) {
-    let (summary, body) = match ended {
-        TimerPhase::Focus => (
-            "notify.focus_complete",
-            match started {
-                Some(TimerPhase::ShortBreak | TimerPhase::LongBreak) => "notify.time_for_break",
-                _ => "notify.start_next_break",
-            },
-        ),
-        TimerPhase::ShortBreak | TimerPhase::LongBreak => (
-            "notify.break_over",
-            match started {
-                Some(TimerPhase::Focus) => "notify.back_to_focus",
-                _ => "notify.start_next_focus",
-            },
-        ),
-    };
-    (
-        localizer.t(summary).to_owned(),
-        localizer.t(body).to_owned(),
-    )
-}
-
 /// The localized, user-facing form of a service error.
 fn error_message(localizer: &Localizer, error: &crate::app::Error) -> String {
     use crate::app::Error;
@@ -1940,26 +1907,6 @@ mod tests {
         assert_eq!(
             relative_time(&localizer, at(30 * 86_400), now),
             at(30 * 86_400).format("%Y-%m-%d").to_string()
-        );
-    }
-
-    #[test]
-    fn notification_messages_match_the_transition() {
-        let localizer = Localizer::new(Language::English);
-        assert_eq!(
-            notification_message(&localizer, TimerPhase::Focus, Some(TimerPhase::ShortBreak)),
-            ("Focus complete".to_owned(), "Time for a break.".to_owned())
-        );
-        assert_eq!(
-            notification_message(&localizer, TimerPhase::LongBreak, Some(TimerPhase::Focus)),
-            ("Break over".to_owned(), "Back to focus.".to_owned())
-        );
-        assert_eq!(
-            notification_message(&localizer, TimerPhase::Focus, None),
-            (
-                "Focus complete".to_owned(),
-                "Start your next break.".to_owned()
-            )
         );
     }
 

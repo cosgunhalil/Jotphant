@@ -103,10 +103,12 @@ Hand-rolled YAML localization: en/tr/es/az, system-language default, errors incl
 ## Release trust (antivirus false positives)
 
 - [x] V1 Embed Windows version resource: product metadata + icon via build.rs/winresource
-- [ ] V2 Report the false positive to Microsoft (microsoft.com/wdsi/filesubmission) — user
-- [ ] V3 Code signing (SignPath.io free for open source; or an OV cert / Azure Trusted Signing)
+- [x] V2 Report the false positive to Microsoft (microsoft.com/wdsi/filesubmission) — user
+- [x] V3 Code signing — applied, rejected everywhere (young project); revisit with traction
 - [x] V1b Keep the symbol table (`strip = "debuginfo"`) — fully-stripped binaries bait ML heuristics
 - [x] V1c GitHub build-provenance attestation on releases + README verify/antivirus section
+- [x] V5 Heuristic hardening: thin LTO, remove the WinRT toast stack (taskbar-attention
+      fallback keeps phase alerts), per-release FP-report step in RELEASING.md
 - [ ] V4 Later: winget/Scoop distribution
 
 ## M8 — Effort/Effect value matrix

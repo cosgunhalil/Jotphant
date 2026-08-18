@@ -117,14 +117,6 @@ settings:
   save: "Yadda saxla"
   cancel: "Ləğv et"
 
-notify:
-  focus_complete: "Fokus tamamlandı"
-  time_for_break: "Fasilə vaxtıdır."
-  start_next_break: "Növbəti fasiləni başladın."
-  break_over: "Fasilə bitdi"
-  back_to_focus: "Fokusa qayıdın."
-  start_next_focus: "Növbəti fokus seansını başladın."
-
 error:
   task_not_found: "tapşırıq tapılmadı"
   note_not_found: "qeyd tapılmadı"

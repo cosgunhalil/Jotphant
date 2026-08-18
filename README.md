@@ -30,8 +30,9 @@ it is up to you.
   from your system locale on first run, switchable in Settings. Adding a
   language is a single YAML file — see
   [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-language).
-- **Desktop notifications** at every phase transition, and a history view with
-  per-task measured effort.
+- **Gentle phase alerts** — the taskbar flashes and the card lights up when a
+  focus session or break ends (no OS notification pop-ups), plus a history view
+  with per-task measured effort and a due-date timeline.
 
 ## Install
 
@@ -51,9 +52,9 @@ detection (e.g. `Wacatac!ml`). This is a **false positive** common to new,
 unsigned open-source binaries: Jotphant's releases are built automatically by
 [public GitHub Actions CI](../../actions) straight from the tagged source code —
 there is no hand-built binary involved. We report each false positive to
-Microsoft. Code signing is on the roadmap: Jotphant has applied to use free
-code signing provided by [SignPath.io](https://signpath.io), with a certificate
-from the [SignPath Foundation](https://signpath.org).
+Microsoft, keep the app free of behavior that trips heuristics (no network
+access, no OS notification APIs, no installers — a single portable exe), and
+will pursue code signing as the project grows.
 
 You can cryptographically verify that a download was built by this repository's
 CI (requires the [GitHub CLI](https://cli.github.com)):

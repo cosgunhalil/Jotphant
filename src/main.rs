@@ -15,7 +15,6 @@ use std::path::PathBuf;
 use directories::ProjectDirs;
 use jotphant::app::TaskService;
 use jotphant::domain::{AppConfig, Language};
-use jotphant::notifier::DesktopNotifier;
 use jotphant::storage::{SqliteStore, config};
 use jotphant::ui::JotphantApp;
 
@@ -96,8 +95,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         native_options,
         Box::new(|cc| {
             install_font_fallback(&cc.egui_ctx);
-            let notifier = Box::new(DesktopNotifier::new());
-            Ok(Box::new(JotphantApp::new(service, save_config, notifier)))
+            Ok(Box::new(JotphantApp::new(service, save_config)))
         }),
     )?;
     Ok(())

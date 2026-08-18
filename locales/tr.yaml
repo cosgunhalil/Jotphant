@@ -117,14 +117,6 @@ settings:
   save: "Kaydet"
   cancel: "İptal"
 
-notify:
-  focus_complete: "Odak tamamlandı"
-  time_for_break: "Mola zamanı."
-  start_next_break: "Sıradaki molayı başlatın."
-  break_over: "Mola bitti"
-  back_to_focus: "Odağa dönün."
-  start_next_focus: "Sıradaki odak seansını başlatın."
-
 error:
   task_not_found: "görev bulunamadı"
   note_not_found: "not bulunamadı"

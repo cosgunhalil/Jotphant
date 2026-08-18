@@ -16,7 +16,6 @@ eframe = "0.35.0"
 egui_commonmark = "0.24.0"
 egui_extras = { version = "0.35.0", features = ["datepicker"] }
 jiff = "0.2.35"
-notify-rust = "4.18.0"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_yaml_ng = "0.10.0"
@@ -25,11 +24,12 @@ thiserror = "2.0.19"
 toml = "1.1.3"
 
 # Optimize release binaries for size and a single distributable exe.
-# Debug info is stripped but the symbol table is kept: fully-stripped binaries
-# look "packed" to antivirus ML heuristics and draw false positives.
+# Debug info is stripped but the symbol table is kept, and LTO is thin rather than
+# fat: fully-stripped, densely-fused binaries look "packed" to antivirus ML
+# heuristics and draw false positives.
 [profile.release]
 codegen-units = 1
-lto = true
+lto = "thin"
 strip = "debuginfo"
 
 [lints.rust]

@@ -117,14 +117,6 @@ settings:
   save: "Guardar"
   cancel: "Cancelar"
 
-notify:
-  focus_complete: "Enfoque completado"
-  time_for_break: "Hora de descansar."
-  start_next_break: "Inicia tu próximo descanso."
-  break_over: "Fin del descanso"
-  back_to_focus: "De vuelta al enfoque."
-  start_next_focus: "Inicia tu próxima sesión de enfoque."
-
 error:
   task_not_found: "tarea no encontrada"
   note_not_found: "nota no encontrada"

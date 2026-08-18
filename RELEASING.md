@@ -40,6 +40,21 @@ How versions are numbered and how a release ships. The pipeline has three parts:
 Release cadence is yours: merge the Release PR after every fix, or let features
 accumulate — the version is computed either way.
 
+## After every release: the antivirus check
+
+Each release is a new file hash, so Defender's ML heuristics judge it fresh.
+Until releases are code-signed, do this after the release publishes:
+
+1. Download the zip from the Releases page. If the browser/Defender flags it,
+   submit it as a **false positive** at
+   <https://www.microsoft.com/en-us/wdsi/filesubmission> ("Incorrectly detected
+   as malware", product: Microsoft Defender Antivirus, include the repo link).
+2. Optionally spot-check locally first:
+   `& "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File <zip> -DisableRemediation`
+
+Microsoft usually clears a reported false positive within days, which fixes it
+for every user via cloud/definition updates.
+
 ## One-time setup: the `RELEASE_PLZ_TOKEN` secret
 
 GitHub does not let a workflow's default `GITHUB_TOKEN` trigger other workflows,

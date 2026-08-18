@@ -122,14 +122,6 @@ settings:
   save: "Save"
   cancel: "Cancel"
 
-notify:
-  focus_complete: "Focus complete"
-  time_for_break: "Time for a break."
-  start_next_break: "Start your next break."
-  break_over: "Break over"
-  back_to_focus: "Back to focus."
-  start_next_focus: "Start your next focus session."
-
 error:
   task_not_found: "task not found"
   note_not_found: "note not found"
