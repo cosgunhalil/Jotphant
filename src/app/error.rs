@@ -21,6 +21,9 @@ pub enum Error {
     /// The earned pomo count did not fit the ledger's amount type.
     #[error("reward amount is too large")]
     RewardOverflow,
+    /// A spend was larger than the bank's balance.
+    #[error("not enough pomos in the bank")]
+    InsufficientBalance,
     /// A task state transition was rejected.
     #[error(transparent)]
     Transition(#[from] InvalidTransition),

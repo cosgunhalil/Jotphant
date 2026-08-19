@@ -7,7 +7,7 @@ use rusqlite::Connection;
 use crate::domain::repository::RepositoryError;
 
 /// The schema version this build expects.
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 /// Version 1: the core tasks / sessions / bank tables.
 const CREATE_V1: &str = r"
@@ -81,6 +81,9 @@ ALTER TABLE tasks ADD COLUMN start_date TEXT;
 ALTER TABLE tasks ADD COLUMN due_date TEXT;
 ";
 
+/// Version 6: an optional note on bank transactions (what a spend was for).
+const ALTER_V6: &str = "ALTER TABLE bank_transactions ADD COLUMN note TEXT;";
+
 /// Applies any pending migrations to `conn`, forward only.
 ///
 /// # Errors
@@ -101,6 +104,9 @@ pub fn migrate(conn: &Connection) -> Result<(), RepositoryError> {
     }
     if version < 5 {
         conn.execute_batch(ALTER_V5)?;
+    }
+    if version < 6 {
+        conn.execute_batch(ALTER_V6)?;
     }
     if version < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -129,6 +135,7 @@ mod tests {
             conn.prepare("SELECT start_date, due_date FROM tasks")
                 .is_ok()
         );
+        assert!(conn.prepare("SELECT note FROM bank_transactions").is_ok());
         assert!(conn.prepare("SELECT id FROM notes").is_ok());
         assert!(conn.prepare("SELECT tag FROM note_tags").is_ok());
     }

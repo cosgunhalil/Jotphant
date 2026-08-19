@@ -198,6 +198,7 @@ pub trait BankRepository {
         task_id: Option<TaskId>,
         amount_pomos: i32,
         transaction_type: BankTransactionType,
+        note: Option<&str>,
         created_at: DateTime<Utc>,
     ) -> Result<BankTransaction, RepositoryError>;
 

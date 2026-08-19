@@ -15,6 +15,7 @@ use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use egui_extras::DatePickerButton;
 
 use crate::app::{TaskEffort, TaskService};
+use crate::domain::bank::{BankTransaction, BankTransactionType};
 use crate::domain::config::{AppConfig, Language, ThemeChoice};
 use crate::domain::ids::{NoteId, TaskId};
 use crate::domain::note::Note;
@@ -119,6 +120,9 @@ enum Action {
     BeginTitleEdit,
     SaveTitle(TaskId),
     CancelTitleEdit,
+    OpenBank,
+    CloseBank,
+    SpendPomos,
     CreateFollowUp(TaskId),
     OpenSettings,
     SaveSettings,
@@ -165,6 +169,10 @@ pub struct JotphantApp<S> {
     detail_due: Option<NaiveDate>,
     editing_title: bool,
     detail_title: String,
+    bank_open: bool,
+    bank_ledger: Vec<BankTransaction>,
+    spend_amount: u32,
+    spend_note: String,
     settings: Option<SettingsDraft>,
     view: View,
     notes: Vec<Note>,
@@ -223,6 +231,10 @@ where
             detail_due: None,
             editing_title: false,
             detail_title: String::new(),
+            bank_open: false,
+            bank_ledger: Vec::new(),
+            spend_amount: 1,
+            spend_note: String::new(),
             settings: None,
             view: View::Board,
             notes: Vec::new(),
@@ -414,6 +426,32 @@ where
                 if let Err(error) = self.service.set_task_ratings(id, effort, effect) {
                     self.status = Some(error_message(&self.localizer, &error));
                 }
+                self.refresh();
+                return;
+            }
+            Action::OpenBank => {
+                self.bank_ledger = self.service.bank_ledger().unwrap_or_default();
+                self.bank_open = true;
+                return;
+            }
+            Action::CloseBank => {
+                self.bank_open = false;
+                return;
+            }
+            Action::SpendPomos => {
+                let note = self.spend_note.trim().to_owned();
+                let note = (!note.is_empty()).then_some(note);
+                match self
+                    .service
+                    .spend_pomos(self.spend_amount, note.as_deref(), now)
+                {
+                    Ok(()) => {
+                        self.spend_note.clear();
+                        self.spend_amount = 1;
+                    }
+                    Err(error) => self.status = Some(error_message(&self.localizer, &error)),
+                }
+                self.bank_ledger = self.service.bank_ledger().unwrap_or_default();
                 self.refresh();
                 return;
             }
@@ -672,13 +710,19 @@ where
                 ui.heading("Jotphant");
                 ui.separator();
                 let minutes = self.balance.max(0) * i64::from(self.leisure_per_pomo);
-                ui.label(self.localizer.t_args(
-                    "app.bank_balance",
-                    &[
-                        ("pomos", self.balance.to_string()),
-                        ("minutes", minutes.to_string()),
-                    ],
-                ));
+                // Clicking the balance opens the bank (spend + history).
+                if ui
+                    .button(self.localizer.t_args(
+                        "app.bank_balance",
+                        &[
+                            ("pomos", self.balance.to_string()),
+                            ("minutes", minutes.to_string()),
+                        ],
+                    ))
+                    .clicked()
+                {
+                    action = Some(Action::OpenBank);
+                }
                 if ui.button(self.localizer.t("app.settings")).clicked() {
                     action = Some(Action::OpenSettings);
                 }
@@ -1328,6 +1372,88 @@ where
             }
         }
 
+        if self.bank_open {
+            let ctx = ui.ctx().clone();
+            let response = egui::Modal::new(egui::Id::new("bank")).show(&ctx, |ui| {
+                ui.set_width(380.0);
+                ui.heading(self.localizer.t("bank.title"));
+                let minutes = self.balance.max(0) * i64::from(self.leisure_per_pomo);
+                ui.label(self.localizer.t_args(
+                    "app.bank_balance",
+                    &[
+                        ("pomos", self.balance.to_string()),
+                        ("minutes", minutes.to_string()),
+                    ],
+                ));
+                ui.separator();
+
+                // Spend form: amount, its minute equivalent, an optional note.
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut self.spend_amount).range(1..=999));
+                    let spend_minutes =
+                        u64::from(self.spend_amount) * u64::from(self.leisure_per_pomo);
+                    ui.weak(
+                        self.localizer
+                            .t_args("bank.minutes", &[("minutes", spend_minutes.to_string())]),
+                    );
+                });
+                let note = ui.add(
+                    egui::TextEdit::singleline(&mut self.spend_note)
+                        .desired_width(f32::INFINITY)
+                        .hint_text(self.localizer.t("bank.note_hint")),
+                );
+                let submitted = note.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if submitted || ui.button(self.localizer.t("bank.spend")).clicked() {
+                    action = Some(Action::SpendPomos);
+                }
+
+                if !self.bank_ledger.is_empty() {
+                    ui.separator();
+                    ui.strong(self.localizer.t("bank.history"));
+                    egui::ScrollArea::vertical()
+                        .id_salt("bank_history")
+                        .max_height(240.0)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            for entry in &self.bank_ledger {
+                                ui.horizontal(|ui| {
+                                    let amount = entry.amount_pomos();
+                                    let amount_text = format!("{amount:+}");
+                                    if amount < 0 {
+                                        ui.colored_label(ui.visuals().error_fg_color, amount_text);
+                                    } else {
+                                        ui.strong(amount_text);
+                                    }
+                                    let label = match entry.transaction_type() {
+                                        BankTransactionType::TaskReward => entry
+                                            .task_id()
+                                            .and_then(|id| {
+                                                self.tasks
+                                                    .iter()
+                                                    .find(|task| task.id() == id)
+                                                    .map(|task| task.title().to_owned())
+                                            })
+                                            .unwrap_or_default(),
+                                        BankTransactionType::Spend => {
+                                            entry.note().unwrap_or_default().to_owned()
+                                        }
+                                    };
+                                    ui.label(label);
+                                    ui.weak(relative_time(
+                                        &self.localizer,
+                                        entry.created_at(),
+                                        now,
+                                    ));
+                                });
+                            }
+                        });
+                }
+            });
+            if response.should_close() {
+                action = Some(Action::CloseBank);
+            }
+        }
+
         if let Some(draft) = self.settings.as_mut() {
             let ctx = ui.ctx().clone();
             let response = egui::Modal::new(egui::Id::new("settings")).show(&ctx, |ui| {
@@ -1959,6 +2085,7 @@ fn error_message(localizer: &Localizer, error: &crate::app::Error) -> String {
         Error::TaskNotActive => localizer.t("error.task_not_active").to_owned(),
         Error::NoRunningSession => localizer.t("error.no_running_session").to_owned(),
         Error::RewardOverflow => localizer.t("error.reward_overflow").to_owned(),
+        Error::InsufficientBalance => localizer.t("error.insufficient_balance").to_owned(),
         Error::Transition(_) => localizer.t("error.invalid_transition").to_owned(),
         Error::Schedule(_) => localizer.t("error.invalid_schedule").to_owned(),
         Error::Repository(inner) => {

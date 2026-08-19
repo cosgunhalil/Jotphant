@@ -70,6 +70,13 @@ detail:
   section_actions: "Actions"
   rename_hint: "Click to rename"
 
+bank:
+  title: "Pomo Bank"
+  spend: "Spend"
+  note_hint: "what was it for?"
+  minutes: "≈ {minutes} min"
+  history: "History"
+
 timeline:
   empty_hint: "No open tasks with a due date yet — set due dates from a card's detail."
 
@@ -131,6 +138,7 @@ error:
   task_not_active: "task is not active"
   no_running_session: "no running session for the task"
   reward_overflow: "reward amount is too large"
+  insufficient_balance: "not enough pomos in the bank"
   invalid_transition: "that status change is not allowed"
   invalid_schedule: "the due date is before the start date"
   storage: "storage error: {message}"

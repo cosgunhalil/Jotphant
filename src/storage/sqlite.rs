@@ -66,7 +66,7 @@ impl SqliteStore {
 const TASK_COLUMNS: &str = "id, title, description, status, estimated_pomos, effort, effect, start_date, due_date, linked_from_task_id, created_at, completed_at";
 const SESSION_COLUMNS: &str =
     "id, task_id, phase, status, configured_duration_seconds, started_at, finished_at";
-const BANK_COLUMNS: &str = "id, task_id, amount_pomos, transaction_type, created_at";
+const BANK_COLUMNS: &str = "id, task_id, amount_pomos, transaction_type, note, created_at";
 
 // --- Value conversions at the storage boundary ---
 
@@ -145,12 +145,14 @@ fn session_status_from_str(value: &str) -> Result<SessionStatus, RepositoryError
 fn bank_type_to_str(transaction_type: BankTransactionType) -> &'static str {
     match transaction_type {
         BankTransactionType::TaskReward => "task_reward",
+        BankTransactionType::Spend => "spend",
     }
 }
 
 fn bank_type_from_str(value: &str) -> Result<BankTransactionType, RepositoryError> {
     match value {
         "task_reward" => Ok(BankTransactionType::TaskReward),
+        "spend" => Ok(BankTransactionType::Spend),
         other => Err(unknown("bank transaction type", other)),
     }
 }
@@ -257,6 +259,7 @@ fn row_to_bank_transaction(row: &Row) -> Result<BankTransaction, RepositoryError
         row.get::<_, Option<i64>>("task_id")?.map(TaskId::new),
         to_i32(row.get("amount_pomos")?)?,
         bank_type_from_str(&row.get::<_, String>("transaction_type")?)?,
+        row.get("note")?,
         datetime_from_str(&row.get::<_, String>("created_at")?)?,
     ))
 }
@@ -433,15 +436,18 @@ impl BankRepository for SqliteStore {
         task_id: Option<TaskId>,
         amount_pomos: i32,
         transaction_type: BankTransactionType,
+        note: Option<&str>,
         created_at: DateTime<Utc>,
     ) -> Result<BankTransaction, RepositoryError> {
         self.conn.execute(
-            "INSERT INTO bank_transactions (task_id, amount_pomos, transaction_type, created_at)
-             VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO bank_transactions
+                (task_id, amount_pomos, transaction_type, note, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 task_id.map(TaskId::value),
                 i64::from(amount_pomos),
                 bank_type_to_str(transaction_type),
+                note,
                 datetime_to_str(created_at),
             ],
         )?;
@@ -451,6 +457,7 @@ impl BankRepository for SqliteStore {
             task_id,
             amount_pomos,
             transaction_type,
+            note.map(str::to_owned),
             created_at,
         ))
     }
@@ -641,10 +648,16 @@ mod tests {
         let store = store();
         let task = store.create_task("earn", 3, ts()).expect("create task");
         store
-            .append_transaction(Some(task.id()), 3, BankTransactionType::TaskReward, ts())
+            .append_transaction(
+                Some(task.id()),
+                3,
+                BankTransactionType::TaskReward,
+                None,
+                ts(),
+            )
             .expect("append reward");
         store
-            .append_transaction(None, 5, BankTransactionType::TaskReward, ts())
+            .append_transaction(None, 5, BankTransactionType::TaskReward, None, ts())
             .expect("append reward");
 
         let ledger = store.list_transactions().expect("list ledger");

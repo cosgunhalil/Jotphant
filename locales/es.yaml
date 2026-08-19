@@ -65,6 +65,13 @@ detail:
   section_actions: "Acciones"
   rename_hint: "Haz clic para renombrar"
 
+bank:
+  title: "Banco de pomos"
+  spend: "Gastar"
+  note_hint: "¿en qué fue?"
+  minutes: "≈ {minutes} min"
+  history: "Historial"
+
 timeline:
   empty_hint: "No hay tareas abiertas con fecha límite; añádelas desde el detalle de una tarjeta."
 
@@ -126,6 +133,7 @@ error:
   task_not_active: "la tarea no está activa"
   no_running_session: "la tarea no tiene una sesión en curso"
   reward_overflow: "la recompensa es demasiado grande"
+  insufficient_balance: "no hay suficientes pomos en el banco"
   invalid_transition: "ese cambio de estado no está permitido"
   invalid_schedule: "la fecha límite es anterior a la fecha de inicio"
   storage: "error de almacenamiento: {message}"

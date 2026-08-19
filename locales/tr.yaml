@@ -65,6 +65,13 @@ detail:
   section_actions: "İşlemler"
   rename_hint: "Yeniden adlandırmak için tıklayın"
 
+bank:
+  title: "Pomo Kasası"
+  spend: "Harca"
+  note_hint: "ne için harcadın?"
+  minutes: "≈ {minutes} dk"
+  history: "Geçmiş"
+
 timeline:
   empty_hint: "Bitiş tarihi olan açık görev yok — kart detayından bitiş tarihi ekleyin."
 
@@ -126,6 +133,7 @@ error:
   task_not_active: "görev etkin değil"
   no_running_session: "görevin çalışan bir seansı yok"
   reward_overflow: "ödül miktarı çok büyük"
+  insufficient_balance: "kasada yeterli pomo yok"
   invalid_transition: "bu durum değişikliğine izin verilmiyor"
   invalid_schedule: "bitiş tarihi başlangıç tarihinden önce olamaz"
   storage: "depolama hatası: {message}"

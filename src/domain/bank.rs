@@ -1,8 +1,8 @@
 //! The pomo bank ledger.
 //!
 //! The bank stores **pomos** as its authoritative unit (1 completed focus pomo = 1
-//! credit). It is a ledger of signed transactions so spending can be added later; v1
-//! only credits rewards (see `SCOPE.md`).
+//! credit). It is a ledger of signed transactions: task rewards credit it, and the
+//! user spends from it on whatever they like, with an optional note (see `SCOPE.md`).
 
 use chrono::{DateTime, Utc};
 
@@ -13,6 +13,8 @@ use crate::domain::ids::{BankTransactionId, TaskId};
 pub enum BankTransactionType {
     /// Pomos credited for completing a task.
     TaskReward,
+    /// Pomos the user spent from the bank.
+    Spend,
 }
 
 /// A signed entry in the pomo bank ledger.
@@ -22,6 +24,7 @@ pub struct BankTransaction {
     task_id: Option<TaskId>,
     amount_pomos: i32,
     transaction_type: BankTransactionType,
+    note: Option<String>,
     created_at: DateTime<Utc>,
 }
 
@@ -33,6 +36,7 @@ impl BankTransaction {
         task_id: Option<TaskId>,
         amount_pomos: i32,
         transaction_type: BankTransactionType,
+        note: Option<String>,
         created_at: DateTime<Utc>,
     ) -> Self {
         Self {
@@ -40,8 +44,15 @@ impl BankTransaction {
             task_id,
             amount_pomos,
             transaction_type,
+            note,
             created_at,
         }
+    }
+
+    /// What the transaction was for, when the user left a note.
+    #[must_use]
+    pub fn note(&self) -> Option<&str> {
+        self.note.as_deref()
     }
 
     /// The transaction's identifier.
@@ -100,6 +111,7 @@ mod tests {
             Some(TaskId::new(id)),
             amount,
             BankTransactionType::TaskReward,
+            None,
             ts(),
         )
     }

@@ -211,6 +211,7 @@ where
                     Some(task_id),
                     amount,
                     BankTransactionType::TaskReward,
+                    None,
                     now,
                 )?;
             }
@@ -684,6 +685,40 @@ where
         Ok(bank::balance(&ledger))
     }
 
+    /// Returns the full bank ledger, newest first.
+    ///
+    /// # Errors
+    /// Returns a storage error if the query fails.
+    pub fn bank_ledger(&self) -> Result<Vec<crate::domain::bank::BankTransaction>, Error> {
+        let mut ledger = self.store.list_transactions()?;
+        ledger.reverse();
+        Ok(ledger)
+    }
+
+    /// Spends pomos from the bank on whatever the user likes, with an optional note.
+    /// Overdrafts are rejected; a zero amount is a no-op.
+    ///
+    /// # Errors
+    /// Returns [`Error::InsufficientBalance`] if the bank holds fewer pomos than
+    /// `amount`, or a storage error.
+    pub fn spend_pomos(
+        &self,
+        amount: u32,
+        note: Option<&str>,
+        now: DateTime<Utc>,
+    ) -> Result<(), Error> {
+        if amount == 0 {
+            return Ok(());
+        }
+        if self.bank_balance()? < i64::from(amount) {
+            return Err(Error::InsufficientBalance);
+        }
+        let debit = -i32::try_from(amount).map_err(|_| Error::RewardOverflow)?;
+        self.store
+            .append_transaction(None, debit, BankTransactionType::Spend, note, now)?;
+        Ok(())
+    }
+
     /// Returns the task's running session of any phase, if any (used by the UI countdown).
     ///
     /// # Errors
@@ -1108,6 +1143,41 @@ mod tests {
             .find(|row| row.task().id() == idle.id())
             .expect("idle row");
         assert_eq!(idle_row.completed_pomos(), 0);
+    }
+
+    #[test]
+    fn spending_reduces_the_balance_and_logs_a_note() {
+        let service = service();
+        let task = service.create_task("earn", 2, ts()).expect("create");
+        service.start_task(task.id(), ts()).expect("start");
+        service.advance_pomodoro(task.id(), ts()).expect("pomo");
+        service.advance_pomodoro(task.id(), ts()).expect("break");
+        service.advance_pomodoro(task.id(), ts()).expect("pomo 2");
+        service.complete_task(task.id(), ts()).expect("complete");
+        assert_eq!(service.bank_balance().expect("balance"), 2);
+
+        service
+            .spend_pomos(1, Some("an episode"), ts())
+            .expect("spend");
+        assert_eq!(service.bank_balance().expect("balance"), 1);
+
+        // Newest first, with the note preserved.
+        let ledger = service.bank_ledger().expect("ledger");
+        assert_eq!(ledger[0].transaction_type(), BankTransactionType::Spend);
+        assert_eq!(ledger[0].amount_pomos(), -1);
+        assert_eq!(ledger[0].note(), Some("an episode"));
+    }
+
+    #[test]
+    fn overdrafts_are_rejected_and_zero_spend_is_a_noop() {
+        let service = service();
+        let error = service
+            .spend_pomos(1, None, ts())
+            .expect_err("empty bank cannot be overdrawn");
+        assert!(matches!(error, Error::InsufficientBalance));
+
+        service.spend_pomos(0, None, ts()).expect("zero is a no-op");
+        assert!(service.bank_ledger().expect("ledger").is_empty());
     }
 
     #[test]

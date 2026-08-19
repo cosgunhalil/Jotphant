@@ -136,6 +136,15 @@ day-scale Timeline (Gantt) view of open tasks with a today line.
 - [x] U2 Two-column modal: content left (description, jots), metadata sidebar right
       (timer, details, stacked actions), click-to-rename title, compact rating combos
 
+## M11 — Bank spending
+
+The deferred half of the bank: spend earned pomos on anything, with a logged note.
+
+- [x] K1 Domain + storage + service: `Spend` transaction type, note column (migration
+      v6), no-overdraft `spend_pomos`, `bank_ledger` (test-first)
+- [x] K2 Bank modal: clickable balance opens it — spend form (amount + minutes + note,
+      Enter submits), full ledger history with task names/notes and relative times
+
 ## Docs & wrap-up
 
 - [x] D1 README.md, CONTRIBUTING.md, and auto-changelog scaffold (CHANGELOG.md)

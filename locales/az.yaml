@@ -65,6 +65,13 @@ detail:
   section_actions: "Əməliyyatlar"
   rename_hint: "Adı dəyişmək üçün klikləyin"
 
+bank:
+  title: "Pomo bankı"
+  spend: "Xərclə"
+  note_hint: "nəyə xərcləndi?"
+  minutes: "≈ {minutes} dəq"
+  history: "Tarixçə"
+
 timeline:
   empty_hint: "Son tarixi olan açıq tapşırıq yoxdur — kart detalından son tarix əlavə edin."
 
@@ -126,6 +133,7 @@ error:
   task_not_active: "tapşırıq aktiv deyil"
   no_running_session: "tapşırığın işləyən seansı yoxdur"
   reward_overflow: "mükafat miqdarı çox böyükdür"
+  insufficient_balance: "bankda kifayət qədər pomo yoxdur"
   invalid_transition: "bu status dəyişikliyinə icazə verilmir"
   invalid_schedule: "son tarix başlama tarixindən əvvəl ola bilməz"
   storage: "yaddaş xətası: {message}"
