@@ -312,6 +312,17 @@ where
         Ok(task)
     }
 
+    /// Renames a task.
+    ///
+    /// # Errors
+    /// Returns [`Error::TaskNotFound`] if the task does not exist, or a storage error.
+    pub fn set_task_title(&self, id: TaskId, title: String) -> Result<Task, Error> {
+        let mut task = self.store.get_task(id)?.ok_or(Error::TaskNotFound)?;
+        task.set_title(title);
+        self.store.update_task(&task)?;
+        Ok(task)
+    }
+
     /// Updates a task's pomodoro estimate.
     ///
     /// # Errors
@@ -1097,6 +1108,24 @@ mod tests {
             .find(|row| row.task().id() == idle.id())
             .expect("idle row");
         assert_eq!(idle_row.completed_pomos(), 0);
+    }
+
+    #[test]
+    fn task_title_can_be_renamed() {
+        let service = service();
+        let task = service.create_task("old name", 1, ts()).expect("create");
+        let renamed = service
+            .set_task_title(task.id(), "new name".to_owned())
+            .expect("rename");
+        assert_eq!(renamed.title(), "new name");
+
+        let reloaded = service
+            .list_tasks()
+            .expect("list")
+            .into_iter()
+            .find(|candidate| candidate.id() == task.id())
+            .expect("exists");
+        assert_eq!(reloaded.title(), "new name");
     }
 
     #[test]

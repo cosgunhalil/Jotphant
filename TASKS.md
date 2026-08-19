@@ -130,6 +130,12 @@ day-scale Timeline (Gantt) view of open tasks with a today line.
 - [x] G2 Detail UI: date pickers (egui_extras), overdue badge on cards, localization
 - [x] G3 Timeline view: Gantt of open tasks, today line, click-to-open
 
+## M10 — Card detail redesign (Trello-style)
+
+- [x] U1 `set_task_title` service (inline rename support, test-first)
+- [x] U2 Two-column modal: content left (description, jots), metadata sidebar right
+      (timer, details, stacked actions), click-to-rename title, compact rating combos
+
 ## Docs & wrap-up
 
 - [x] D1 README.md, CONTRIBUTING.md, and auto-changelog scaffold (CHANGELOG.md)

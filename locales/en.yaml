@@ -66,6 +66,9 @@ detail:
   cancel: "Cancel"
   edited_marker: "(edited)"
   close: "Close"
+  section_details: "Details"
+  section_actions: "Actions"
+  rename_hint: "Click to rename"
 
 timeline:
   empty_hint: "No open tasks with a due date yet — set due dates from a card's detail."

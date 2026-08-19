@@ -61,6 +61,9 @@ detail:
   cancel: "Ləğv et"
   edited_marker: "(düzəliş edilib)"
   close: "Bağla"
+  section_details: "Detallar"
+  section_actions: "Əməliyyatlar"
+  rename_hint: "Adı dəyişmək üçün klikləyin"
 
 timeline:
   empty_hint: "Son tarixi olan açıq tapşırıq yoxdur — kart detalından son tarix əlavə edin."

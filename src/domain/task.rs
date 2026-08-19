@@ -229,6 +229,11 @@ impl Task {
         &self.title
     }
 
+    /// Replaces the task's title.
+    pub fn set_title(&mut self, title: String) {
+        self.title = title;
+    }
+
     /// The task's free-form description (may be empty).
     #[must_use]
     pub fn description(&self) -> &str {

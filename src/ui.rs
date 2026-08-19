@@ -116,6 +116,9 @@ enum Action {
     SetEstimate(TaskId),
     SetRatings(TaskId, Option<Rating>, Option<Rating>),
     SetSchedule(TaskId),
+    BeginTitleEdit,
+    SaveTitle(TaskId),
+    CancelTitleEdit,
     CreateFollowUp(TaskId),
     OpenSettings,
     SaveSettings,
@@ -160,6 +163,8 @@ pub struct JotphantApp<S> {
     detail_estimate: u32,
     detail_start: Option<NaiveDate>,
     detail_due: Option<NaiveDate>,
+    editing_title: bool,
+    detail_title: String,
     settings: Option<SettingsDraft>,
     view: View,
     notes: Vec<Note>,
@@ -216,6 +221,8 @@ where
             detail_estimate: 0,
             detail_start: None,
             detail_due: None,
+            editing_title: false,
+            detail_title: String::new(),
             settings: None,
             view: View::Board,
             notes: Vec::new(),
@@ -323,6 +330,8 @@ where
         self.detail_estimate = task.map_or(0, Task::estimated_pomos);
         self.detail_start = task.and_then(Task::start_date);
         self.detail_due = task.and_then(Task::due_date);
+        self.detail_title = task.map(|task| task.title().to_owned()).unwrap_or_default();
+        self.editing_title = false;
         self.task_notes = self.service.task_notes(id).unwrap_or_default();
         self.quick_jot_text.clear();
         self.selected = Some(id);
@@ -405,6 +414,30 @@ where
                 if let Err(error) = self.service.set_task_ratings(id, effort, effect) {
                     self.status = Some(error_message(&self.localizer, &error));
                 }
+                self.refresh();
+                return;
+            }
+            Action::BeginTitleEdit => {
+                self.detail_title = self
+                    .selected
+                    .and_then(|id| self.tasks.iter().find(|task| task.id() == id))
+                    .map(|task| task.title().to_owned())
+                    .unwrap_or_default();
+                self.editing_title = true;
+                return;
+            }
+            Action::CancelTitleEdit => {
+                self.editing_title = false;
+                return;
+            }
+            Action::SaveTitle(id) => {
+                let title = self.detail_title.trim().to_owned();
+                if title.is_empty() {
+                    self.status = Some(self.localizer.t("error.title_required").to_owned());
+                } else if let Err(error) = self.service.set_task_title(id, title) {
+                    self.status = Some(error_message(&self.localizer, &error));
+                }
+                self.editing_title = false;
                 self.refresh();
                 return;
             }
@@ -945,267 +978,348 @@ where
         if let Some(selected_id) = self.selected {
             let ctx = ui.ctx().clone();
             let response = egui::Modal::new(egui::Id::new("task_detail")).show(&ctx, |ui| {
-                ui.set_width(420.0);
+                ui.set_width(700.0);
                 let Some(task) = self.tasks.iter().find(|task| task.id() == selected_id) else {
                     action = Some(Action::CloseDetail);
                     return;
                 };
 
-                ui.heading(task.title());
-                ui.label(self.localizer.t_args(
-                    "detail.status",
-                    &[(
-                        "status",
-                        self.localizer.t(status_key(task.status())).to_owned(),
-                    )],
-                ));
-                let completed = self.progress.get(&selected_id).copied().unwrap_or(0);
-                ui.label(
-                    self.localizer
-                        .t_args("detail.progress", &[("completed", completed.to_string())]),
-                );
-                ui.horizontal(|ui| {
-                    ui.label(self.localizer.t("detail.estimate"));
-                    ui.add(egui::DragValue::new(&mut self.detail_estimate).range(0..=999));
-                    if ui.button(self.localizer.t("detail.set")).clicked() {
-                        action = Some(Action::SetEstimate(selected_id));
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.label(self.localizer.t("detail.effort"));
-                    if let Some(new_effort) = rating_selector(ui, &self.localizer, task.effort()) {
-                        action = Some(Action::SetRatings(selected_id, new_effort, task.effect()));
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.label(self.localizer.t("detail.effect"));
-                    if let Some(new_effect) = rating_selector(ui, &self.localizer, task.effect()) {
-                        action = Some(Action::SetRatings(selected_id, task.effort(), new_effect));
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.label(self.localizer.t("detail.start_date"));
-                    let mut has_start = self.detail_start.is_some();
-                    if ui.checkbox(&mut has_start, "").changed() {
-                        self.detail_start = has_start.then(|| Local::now().date_naive());
-                        action = Some(Action::SetSchedule(selected_id));
-                    }
-                    if let Some(current) = self.detail_start {
-                        let mut picker_date = to_picker_date(current);
-                        let response = ui.add(
-                            DatePickerButton::new(&mut picker_date).id_salt("start_date_picker"),
-                        );
-                        if response.changed()
-                            && let Some(updated) = from_picker_date(picker_date)
-                            && updated != current
-                        {
-                            self.detail_start = Some(updated);
-                            action = Some(Action::SetSchedule(selected_id));
+                // Header: the title; click it to rename (Enter saves, focus loss cancels).
+                if self.editing_title {
+                    let edit = ui.add(
+                        egui::TextEdit::singleline(&mut self.detail_title)
+                            .desired_width(f32::INFINITY)
+                            .font(egui::TextStyle::Heading),
+                    );
+                    if edit.lost_focus() {
+                        if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            action = Some(Action::SaveTitle(selected_id));
+                        } else {
+                            action = Some(Action::CancelTitleEdit);
                         }
                     }
-                });
-                ui.horizontal(|ui| {
-                    ui.label(self.localizer.t("detail.due_date"));
-                    let mut has_due = self.detail_due.is_some();
-                    if ui.checkbox(&mut has_due, "").changed() {
-                        self.detail_due = has_due.then(|| Local::now().date_naive());
-                        action = Some(Action::SetSchedule(selected_id));
-                    }
-                    if let Some(current) = self.detail_due {
-                        let mut picker_date = to_picker_date(current);
-                        let response = ui.add(
-                            DatePickerButton::new(&mut picker_date).id_salt("due_date_picker"),
-                        );
-                        if response.changed()
-                            && let Some(updated) = from_picker_date(picker_date)
-                            && updated != current
-                        {
-                            self.detail_due = Some(updated);
-                            action = Some(Action::SetSchedule(selected_id));
-                        }
-                    }
-                });
-                if let Some(parent_id) = task.linked_from() {
-                    let parent_title = self
-                        .tasks
-                        .iter()
-                        .find(|candidate| candidate.id() == parent_id)
-                        .map(|candidate| candidate.title().to_owned());
-                    if let Some(title) = parent_title {
-                        ui.horizontal(|ui| {
-                            ui.label(self.localizer.t("detail.follow_up_of"));
-                            if ui.link(title).clicked() {
-                                action = Some(Action::Open(parent_id));
-                            }
-                        });
-                    }
-                }
-
-                if task.status() == TaskStatus::InProgress {
-                    if let Some(session) = self.active_session.as_ref() {
-                        ui.label(format!(
-                            "{} {}",
-                            phase_label(&self.localizer, session.phase()),
-                            format_mmss(session.remaining_seconds(now))
-                        ));
-                        if ui
-                            .button(advance_label(&self.localizer, session.phase()))
-                            .clicked()
-                        {
-                            action = Some(Action::Advance(selected_id));
-                        }
-                    } else if let Some(phase) = self.pending_phase
-                        && ui
-                            .button(self.localizer.t_args(
-                                "card.start_phase",
-                                &[("phase", phase_label(&self.localizer, phase).to_owned())],
-                            ))
-                            .clicked()
+                } else {
+                    let title = egui::Label::new(egui::RichText::new(task.title()).heading())
+                        .sense(egui::Sense::click());
+                    if ui
+                        .add(title)
+                        .on_hover_cursor(egui::CursorIcon::Text)
+                        .on_hover_text(self.localizer.t("detail.rename_hint"))
+                        .clicked()
                     {
-                        action = Some(Action::StartNext(selected_id));
+                        action = Some(Action::BeginTitleEdit);
                     }
                 }
-
                 ui.separator();
-                ui.label(self.localizer.t("detail.description"));
-                ui.add(
-                    egui::TextEdit::multiline(&mut self.detail_description)
-                        .desired_rows(4)
-                        .desired_width(f32::INFINITY),
-                );
-                if ui
-                    .button(self.localizer.t("detail.save_description"))
-                    .clicked()
-                {
-                    action = Some(Action::SaveDescription(selected_id));
-                }
 
-                ui.separator();
-                ui.label(self.localizer.t("detail.jots"));
-                let jot = ui.add(
-                    egui::TextEdit::singleline(&mut self.quick_jot_text)
-                        .desired_width(f32::INFINITY)
-                        .hint_text(self.localizer.t("detail.jot_hint")),
-                );
-                let submitted = jot.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if submitted {
-                    // Keep focus so several jots can be chained without re-clicking.
-                    jot.request_focus();
-                }
-                if submitted || ui.button(self.localizer.t("detail.jot")).clicked() {
-                    action = Some(Action::QuickJot(selected_id));
-                }
-                if !self.task_notes.is_empty() {
-                    egui::ScrollArea::vertical()
-                        .id_salt("task_jots")
-                        .max_height(200.0)
-                        .auto_shrink([false, true])
-                        .show(ui, |ui| {
-                            for note in &self.task_notes {
-                                egui::Frame::group(ui.style()).show(ui, |ui| {
-                                    ui.set_width(ui.available_width());
-                                    if self.editing_jot == Some(note.id()) {
-                                        let edit = ui.add(
-                                            egui::TextEdit::singleline(&mut self.editing_jot_text)
-                                                .desired_width(f32::INFINITY),
-                                        );
-                                        let saved = edit.lost_focus()
-                                            && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                                        ui.horizontal(|ui| {
-                                            if saved
-                                                || ui
-                                                    .small_button(self.localizer.t("detail.save"))
-                                                    .clicked()
-                                            {
-                                                action = Some(Action::SaveJotEdit(note.id()));
-                                            }
-                                            if ui
-                                                .small_button(self.localizer.t("detail.cancel"))
-                                                .clicked()
-                                            {
-                                                action = Some(Action::CancelJotEdit);
-                                            }
-                                        });
-                                    } else {
-                                        CommonMarkViewer::new().show(
-                                            ui,
-                                            &mut self.md_cache,
-                                            note.body_markdown(),
-                                        );
-                                        ui.horizontal(|ui| {
-                                            let mut stamp = relative_time(
-                                                &self.localizer,
-                                                note.created_at(),
-                                                now,
-                                            );
-                                            if note.updated_at() != note.created_at() {
-                                                stamp.push(' ');
-                                                stamp.push_str(
-                                                    self.localizer.t("detail.edited_marker"),
+                ui.horizontal_top(|ui| {
+                    // Left column: the content you read and write.
+                    ui.vertical(|ui| {
+                        ui.set_width(430.0);
+                        ui.strong(self.localizer.t("detail.description"));
+                        ui.add(
+                            egui::TextEdit::multiline(&mut self.detail_description)
+                                .desired_rows(5)
+                                .desired_width(f32::INFINITY),
+                        );
+                        if ui
+                            .button(self.localizer.t("detail.save_description"))
+                            .clicked()
+                        {
+                            action = Some(Action::SaveDescription(selected_id));
+                        }
+
+                        ui.add_space(10.0);
+                        ui.strong(self.localizer.t("detail.jots"));
+                        let jot = ui.add(
+                            egui::TextEdit::singleline(&mut self.quick_jot_text)
+                                .desired_width(f32::INFINITY)
+                                .hint_text(self.localizer.t("detail.jot_hint")),
+                        );
+                        let submitted =
+                            jot.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        if submitted {
+                            // Keep focus so several jots can be chained without re-clicking.
+                            jot.request_focus();
+                            action = Some(Action::QuickJot(selected_id));
+                        }
+                        if !self.task_notes.is_empty() {
+                            egui::ScrollArea::vertical()
+                                .id_salt("task_jots")
+                                .max_height(260.0)
+                                .auto_shrink([false, true])
+                                .show(ui, |ui| {
+                                    for note in &self.task_notes {
+                                        egui::Frame::group(ui.style()).show(ui, |ui| {
+                                            ui.set_width(ui.available_width());
+                                            if self.editing_jot == Some(note.id()) {
+                                                let edit = ui.add(
+                                                    egui::TextEdit::singleline(
+                                                        &mut self.editing_jot_text,
+                                                    )
+                                                    .desired_width(f32::INFINITY),
                                                 );
-                                            }
-                                            ui.weak(stamp);
-                                            if ui
-                                                .small_button(self.localizer.t("detail.edit"))
-                                                .clicked()
-                                            {
-                                                action = Some(Action::EditJot(note.id()));
-                                            }
-                                            if ui
-                                                .small_button(self.localizer.t("detail.delete"))
-                                                .clicked()
-                                            {
-                                                action = Some(Action::DeleteJot(note.id()));
+                                                let saved = edit.lost_focus()
+                                                    && ui
+                                                        .input(|i| i.key_pressed(egui::Key::Enter));
+                                                ui.horizontal(|ui| {
+                                                    if saved
+                                                        || ui
+                                                            .small_button(
+                                                                self.localizer.t("detail.save"),
+                                                            )
+                                                            .clicked()
+                                                    {
+                                                        action =
+                                                            Some(Action::SaveJotEdit(note.id()));
+                                                    }
+                                                    if ui
+                                                        .small_button(
+                                                            self.localizer.t("detail.cancel"),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        action = Some(Action::CancelJotEdit);
+                                                    }
+                                                });
+                                            } else {
+                                                CommonMarkViewer::new().show(
+                                                    ui,
+                                                    &mut self.md_cache,
+                                                    note.body_markdown(),
+                                                );
+                                                ui.horizontal(|ui| {
+                                                    let mut stamp = relative_time(
+                                                        &self.localizer,
+                                                        note.created_at(),
+                                                        now,
+                                                    );
+                                                    if note.updated_at() != note.created_at() {
+                                                        stamp.push(' ');
+                                                        stamp.push_str(
+                                                            self.localizer
+                                                                .t("detail.edited_marker"),
+                                                        );
+                                                    }
+                                                    ui.weak(stamp);
+                                                    if ui
+                                                        .small_button(
+                                                            self.localizer.t("detail.edit"),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        action = Some(Action::EditJot(note.id()));
+                                                    }
+                                                    if ui
+                                                        .small_button(
+                                                            self.localizer.t("detail.delete"),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        action = Some(Action::DeleteJot(note.id()));
+                                                    }
+                                                });
                                             }
                                         });
                                     }
                                 });
+                        }
+                    });
+
+                    ui.separator();
+
+                    // Right column: the metadata sidebar, Trello-style.
+                    ui.vertical(|ui| {
+                        ui.set_width(220.0);
+                        let button_size = egui::vec2(ui.available_width(), 26.0);
+
+                        // Live timer for the active task.
+                        if task.status() == TaskStatus::InProgress {
+                            if let Some(session) = self.active_session.as_ref() {
+                                ui.strong(format!(
+                                    "{} {}",
+                                    phase_label(&self.localizer, session.phase()),
+                                    format_mmss(session.remaining_seconds(now))
+                                ));
+                                if ui
+                                    .add_sized(
+                                        button_size,
+                                        egui::Button::new(advance_label(
+                                            &self.localizer,
+                                            session.phase(),
+                                        )),
+                                    )
+                                    .clicked()
+                                {
+                                    action = Some(Action::Advance(selected_id));
+                                }
+                            } else if let Some(phase) = self.pending_phase
+                                && ui
+                                    .add_sized(
+                                        button_size,
+                                        egui::Button::new(self.localizer.t_args(
+                                            "card.start_phase",
+                                            &[(
+                                                "phase",
+                                                phase_label(&self.localizer, phase).to_owned(),
+                                            )],
+                                        )),
+                                    )
+                                    .clicked()
+                            {
+                                action = Some(Action::StartNext(selected_id));
+                            }
+                            ui.separator();
+                        }
+
+                        ui.strong(self.localizer.t("detail.section_details"));
+                        ui.label(self.localizer.t_args(
+                            "detail.status",
+                            &[(
+                                "status",
+                                self.localizer.t(status_key(task.status())).to_owned(),
+                            )],
+                        ));
+                        let completed = self.progress.get(&selected_id).copied().unwrap_or(0);
+                        ui.label(
+                            self.localizer
+                                .t_args("detail.progress", &[("completed", completed.to_string())]),
+                        );
+                        ui.horizontal(|ui| {
+                            ui.label(self.localizer.t("detail.estimate"));
+                            ui.add(egui::DragValue::new(&mut self.detail_estimate).range(0..=999));
+                            if ui.small_button(self.localizer.t("detail.set")).clicked() {
+                                action = Some(Action::SetEstimate(selected_id));
                             }
                         });
-                }
+                        ui.horizontal(|ui| {
+                            ui.label(self.localizer.t("detail.effort"));
+                            if let Some(new_effort) =
+                                rating_combo(ui, &self.localizer, "effort_combo", task.effort())
+                            {
+                                action = Some(Action::SetRatings(
+                                    selected_id,
+                                    new_effort,
+                                    task.effect(),
+                                ));
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label(self.localizer.t("detail.effect"));
+                            if let Some(new_effect) =
+                                rating_combo(ui, &self.localizer, "effect_combo", task.effect())
+                            {
+                                action = Some(Action::SetRatings(
+                                    selected_id,
+                                    task.effort(),
+                                    new_effect,
+                                ));
+                            }
+                        });
 
-                ui.separator();
-                ui.horizontal(|ui| {
-                    match task.status() {
-                        TaskStatus::Todo => {
-                            if ui.button(self.localizer.t("card.start")).clicked() {
-                                action = Some(Action::Start(selected_id));
+                        ui.label(self.localizer.t("detail.start_date"));
+                        ui.horizontal(|ui| {
+                            let mut has_start = self.detail_start.is_some();
+                            if ui.checkbox(&mut has_start, "").changed() {
+                                self.detail_start = has_start.then(|| Local::now().date_naive());
+                                action = Some(Action::SetSchedule(selected_id));
+                            }
+                            if let Some(current) = self.detail_start {
+                                let mut picker_date = to_picker_date(current);
+                                let response = ui.add(
+                                    DatePickerButton::new(&mut picker_date)
+                                        .id_salt("start_date_picker"),
+                                );
+                                if response.changed()
+                                    && let Some(updated) = from_picker_date(picker_date)
+                                    && updated != current
+                                {
+                                    self.detail_start = Some(updated);
+                                    action = Some(Action::SetSchedule(selected_id));
+                                }
+                            }
+                        });
+                        ui.label(self.localizer.t("detail.due_date"));
+                        ui.horizontal(|ui| {
+                            let mut has_due = self.detail_due.is_some();
+                            if ui.checkbox(&mut has_due, "").changed() {
+                                self.detail_due = has_due.then(|| Local::now().date_naive());
+                                action = Some(Action::SetSchedule(selected_id));
+                            }
+                            if let Some(current) = self.detail_due {
+                                let mut picker_date = to_picker_date(current);
+                                let response = ui.add(
+                                    DatePickerButton::new(&mut picker_date)
+                                        .id_salt("due_date_picker"),
+                                );
+                                if response.changed()
+                                    && let Some(updated) = from_picker_date(picker_date)
+                                    && updated != current
+                                {
+                                    self.detail_due = Some(updated);
+                                    action = Some(Action::SetSchedule(selected_id));
+                                }
+                            }
+                        });
+                        if let Some(parent_id) = task.linked_from() {
+                            let parent_title = self
+                                .tasks
+                                .iter()
+                                .find(|candidate| candidate.id() == parent_id)
+                                .map(|candidate| candidate.title().to_owned());
+                            if let Some(title) = parent_title {
+                                ui.label(self.localizer.t("detail.follow_up_of"));
+                                if ui.link(title).clicked() {
+                                    action = Some(Action::Open(parent_id));
+                                }
                             }
                         }
-                        TaskStatus::InProgress => {
-                            if ui.button(self.localizer.t("card.pause")).clicked() {
-                                action = Some(Action::Pause(selected_id));
+
+                        ui.separator();
+                        ui.strong(self.localizer.t("detail.section_actions"));
+                        let sidebar_button = |ui: &mut egui::Ui, key: &str| {
+                            ui.add_sized(button_size, egui::Button::new(self.localizer.t(key)))
+                                .clicked()
+                        };
+                        match task.status() {
+                            TaskStatus::Todo => {
+                                if sidebar_button(ui, "card.start") {
+                                    action = Some(Action::Start(selected_id));
+                                }
                             }
-                            if ui.button(self.localizer.t("card.complete")).clicked() {
-                                action = Some(Action::CompleteTask(selected_id));
+                            TaskStatus::InProgress => {
+                                if sidebar_button(ui, "card.pause") {
+                                    action = Some(Action::Pause(selected_id));
+                                }
+                                if sidebar_button(ui, "card.complete") {
+                                    action = Some(Action::CompleteTask(selected_id));
+                                }
+                                if sidebar_button(ui, "card.cancel") {
+                                    action = Some(Action::Cancel(selected_id));
+                                }
                             }
-                            if ui.button(self.localizer.t("card.cancel")).clicked() {
-                                action = Some(Action::Cancel(selected_id));
+                            TaskStatus::Paused => {
+                                if sidebar_button(ui, "card.resume") {
+                                    action = Some(Action::Start(selected_id));
+                                }
+                                if sidebar_button(ui, "card.complete") {
+                                    action = Some(Action::CompleteTask(selected_id));
+                                }
+                                if sidebar_button(ui, "card.cancel") {
+                                    action = Some(Action::Cancel(selected_id));
+                                }
                             }
+                            TaskStatus::Done | TaskStatus::Cancelled => {}
                         }
-                        TaskStatus::Paused => {
-                            if ui.button(self.localizer.t("card.resume")).clicked() {
-                                action = Some(Action::Start(selected_id));
-                            }
-                            if ui.button(self.localizer.t("card.complete")).clicked() {
-                                action = Some(Action::CompleteTask(selected_id));
-                            }
-                            if ui.button(self.localizer.t("card.cancel")).clicked() {
-                                action = Some(Action::Cancel(selected_id));
-                            }
+                        if task.status().is_terminal()
+                            && sidebar_button(ui, "detail.create_follow_up")
+                        {
+                            action = Some(Action::CreateFollowUp(selected_id));
                         }
-                        TaskStatus::Done | TaskStatus::Cancelled => {}
-                    }
-                    if task.status().is_terminal()
-                        && ui
-                            .button(self.localizer.t("detail.create_follow_up"))
-                            .clicked()
-                    {
-                        action = Some(Action::CreateFollowUp(selected_id));
-                    }
-                    if ui.button(self.localizer.t("detail.close")).clicked() {
-                        action = Some(Action::CloseDetail);
-                    }
+                        if sidebar_button(ui, "detail.close") {
+                            action = Some(Action::CloseDetail);
+                        }
+                    });
                 });
             });
 
@@ -1490,17 +1604,33 @@ fn from_picker_date(date: jiff::civil::Date) -> Option<NaiveDate> {
     )
 }
 
-/// A None/Low/Mid/High choice row; returns the new value when the user changed it.
-fn rating_selector(
+/// A compact None/Low/Mid/High dropdown; returns the new value when the user changed it.
+fn rating_combo(
     ui: &mut egui::Ui,
     localizer: &Localizer,
+    id_salt: &str,
     current: Option<Rating>,
 ) -> Option<Option<Rating>> {
+    let label_of = |value: Option<Rating>| match value {
+        None => localizer.t("rating.none"),
+        Some(Rating::Low) => localizer.t("rating.low"),
+        Some(Rating::Mid) => localizer.t("rating.mid"),
+        Some(Rating::High) => localizer.t("rating.high"),
+    };
     let mut value = current;
-    ui.selectable_value(&mut value, None, localizer.t("rating.none"));
-    ui.selectable_value(&mut value, Some(Rating::Low), localizer.t("rating.low"));
-    ui.selectable_value(&mut value, Some(Rating::Mid), localizer.t("rating.mid"));
-    ui.selectable_value(&mut value, Some(Rating::High), localizer.t("rating.high"));
+    egui::ComboBox::from_id_salt(id_salt)
+        .selected_text(label_of(value))
+        .width(110.0)
+        .show_ui(ui, |ui| {
+            for option in [
+                None,
+                Some(Rating::Low),
+                Some(Rating::Mid),
+                Some(Rating::High),
+            ] {
+                ui.selectable_value(&mut value, option, label_of(option));
+            }
+        });
     (value != current).then_some(value)
 }
 
