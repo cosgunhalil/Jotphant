@@ -117,6 +117,7 @@ enum Action {
     SetEstimate(TaskId),
     SetRatings(TaskId, Option<Rating>, Option<Rating>),
     SetSchedule(TaskId),
+    ApplySchedule(TaskId, Option<NaiveDate>, Option<NaiveDate>),
     BeginTitleEdit,
     SaveTitle(TaskId),
     CancelTitleEdit,
@@ -147,6 +148,24 @@ enum Action {
 /// Persists the configuration; injected by the composition root so the UI need not know
 /// about storage.
 type SaveConfig = Box<dyn Fn(&AppConfig) -> Result<(), String>>;
+
+/// Which part of a timeline bar is being dragged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TimelineDragMode {
+    /// The bar body: shifts start and due together.
+    Move,
+    /// The left edge: changes the start date (duration).
+    ResizeStart,
+    /// The right edge: changes the due date (duration).
+    ResizeEnd,
+}
+
+/// An in-flight drag on a timeline bar, accumulated until release.
+struct TimelineDrag {
+    task: TaskId,
+    mode: TimelineDragMode,
+    accumulated_x: f32,
+}
 
 /// The root eframe application.
 pub struct JotphantApp<S> {
@@ -193,6 +212,7 @@ pub struct JotphantApp<S> {
     localizer: Localizer,
     applied_language: Language,
     dragging: Option<TaskId>,
+    timeline_drag: Option<TimelineDrag>,
     /// A brief celebratory highlight on a card whose pomo just completed:
     /// the task and the ui-time the flash started.
     flash: Option<(TaskId, f64)>,
@@ -253,6 +273,7 @@ where
             report: Vec::new(),
             applied_theme: None,
             dragging: None,
+            timeline_drag: None,
             flash: None,
         };
         // Catch up any timer that elapsed while the app was closed, then load state.
@@ -476,6 +497,13 @@ where
                     self.status = Some(error_message(&self.localizer, &error));
                 }
                 self.editing_title = false;
+                self.refresh();
+                return;
+            }
+            Action::ApplySchedule(id, start, due) => {
+                if let Err(error) = self.service.set_task_schedule(id, start, due) {
+                    self.status = Some(error_message(&self.localizer, &error));
+                }
                 self.refresh();
                 return;
             }
@@ -981,7 +1009,14 @@ where
                         });
                 }
                 View::Timeline => {
-                    timeline_view(ui, &self.localizer, &self.tasks, today, &mut action);
+                    timeline_view(
+                        ui,
+                        &self.localizer,
+                        &self.tasks,
+                        today,
+                        &mut self.timeline_drag,
+                        &mut action,
+                    );
                 }
             }
         });
@@ -1548,6 +1583,7 @@ fn timeline_view(
     localizer: &Localizer,
     tasks: &[Task],
     today: NaiveDate,
+    drag: &mut Option<TimelineDrag>,
     action: &mut Option<Action>,
 ) {
     const LABEL_WIDTH: f32 = 180.0;
@@ -1637,6 +1673,13 @@ fn timeline_view(
                 egui::Stroke::new(2.0, accent),
             );
 
+            // How far (in whole days) an in-flight drag has moved.
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "day deltas from screen distances are tiny"
+            )]
+            let snap_days = |pixels: f32| -> i64 { (pixels / DAY_WIDTH).round() as i64 };
+
             for (index, task) in rows.iter().enumerate() {
                 #[expect(
                     clippy::cast_precision_loss,
@@ -1661,9 +1704,25 @@ fn timeline_view(
                     text_color,
                 );
 
-                // The bar, tinted by the task's value score when rated.
-                let due = task.due_date().unwrap_or_else(|| task.bar_start());
-                let start = task.bar_start().min(due);
+                // The bar's dates — previewing the in-flight drag, day-snapped and
+                // clamped so the bar can never invert.
+                let base_due = task.due_date().unwrap_or_else(|| task.bar_start());
+                let base_start = task.bar_start().min(base_due);
+                let (start, due) = match drag.as_ref() {
+                    Some(active) if active.task == task.id() => {
+                        let days = chrono::Duration::days(snap_days(active.accumulated_x));
+                        match active.mode {
+                            TimelineDragMode::Move => (base_start + days, base_due + days),
+                            TimelineDragMode::ResizeStart => {
+                                ((base_start + days).min(base_due), base_due)
+                            }
+                            TimelineDragMode::ResizeEnd => {
+                                (base_start, (base_due + days).max(base_start))
+                            }
+                        }
+                    }
+                    _ => (base_start, base_due),
+                };
                 let bar_rect = egui::Rect::from_min_max(
                     egui::pos2(x_of(&rect, start), top + 6.0),
                     egui::pos2(
@@ -1689,16 +1748,85 @@ fn timeline_view(
                     egui::StrokeKind::Inside,
                 );
 
-                // The whole row is clickable and opens the task's detail.
-                let response = ui.interact(
+                // The row opens the task's detail; the bar (registered after, so it
+                // wins the overlap) also drags: body = move, edges = resize.
+                let row_response = ui.interact(
                     row_rect,
                     egui::Id::new(("timeline_row", task.id().value())),
                     egui::Sense::click(),
                 );
-                if response.hovered() {
+                if row_response.hovered() {
                     painter.rect_filled(row_rect, 0.0, accent.gamma_multiply(0.06));
                 }
-                if response.clicked() {
+                if row_response.clicked() {
+                    *action = Some(Action::Open(task.id()));
+                }
+
+                const EDGE_ZONE: f32 = 7.0;
+                let bar_response = ui.interact(
+                    bar_rect,
+                    egui::Id::new(("timeline_bar", task.id().value())),
+                    egui::Sense::click_and_drag(),
+                );
+                let zone_of = |x: f32| {
+                    if bar_rect.width() < 3.0 * EDGE_ZONE {
+                        TimelineDragMode::Move
+                    } else if x <= bar_rect.left() + EDGE_ZONE {
+                        TimelineDragMode::ResizeStart
+                    } else if x >= bar_rect.right() - EDGE_ZONE {
+                        TimelineDragMode::ResizeEnd
+                    } else {
+                        TimelineDragMode::Move
+                    }
+                };
+                // Cursor feedback: resize arrows on the edges, a grab hand elsewhere.
+                if let Some(pos) = bar_response.hover_pos() {
+                    let cursor = if drag.is_some() {
+                        egui::CursorIcon::Grabbing
+                    } else {
+                        match zone_of(pos.x) {
+                            TimelineDragMode::Move => egui::CursorIcon::Grab,
+                            _ => egui::CursorIcon::ResizeHorizontal,
+                        }
+                    };
+                    ui.ctx().set_cursor_icon(cursor);
+                }
+                if bar_response.drag_started()
+                    && let Some(pos) = bar_response.interact_pointer_pos()
+                {
+                    *drag = Some(TimelineDrag {
+                        task: task.id(),
+                        mode: zone_of(pos.x),
+                        accumulated_x: 0.0,
+                    });
+                }
+                if let Some(active) = drag.as_mut()
+                    && active.task == task.id()
+                {
+                    if bar_response.dragged() {
+                        active.accumulated_x += bar_response.drag_delta().x;
+                    }
+                    if bar_response.drag_stopped() {
+                        let days = snap_days(active.accumulated_x);
+                        if days != 0 {
+                            let shift = chrono::Duration::days(days);
+                            let (new_start, new_due) = match active.mode {
+                                TimelineDragMode::Move => {
+                                    (Some(base_start + shift), Some(base_due + shift))
+                                }
+                                TimelineDragMode::ResizeStart => {
+                                    (Some((base_start + shift).min(base_due)), Some(base_due))
+                                }
+                                TimelineDragMode::ResizeEnd => {
+                                    (task.start_date(), Some((base_due + shift).max(base_start)))
+                                }
+                            };
+                            *action = Some(Action::ApplySchedule(task.id(), new_start, new_due));
+                        }
+                        *drag = None;
+                    }
+                }
+                if bar_response.clicked() {
                     *action = Some(Action::Open(task.id()));
                 }
             }

@@ -129,6 +129,8 @@ day-scale Timeline (Gantt) view of open tasks with a today line.
       `is_overdue`/`bar_start`, migration v5, `set_task_schedule` (test-first)
 - [x] G2 Detail UI: date pickers (egui_extras), overdue badge on cards, localization
 - [x] G3 Timeline view: Gantt of open tasks, today line, click-to-open
+- [x] G4 Interactive bars: drag body to move the schedule, drag edges to resize the
+      duration, day-snapped with live preview, persisted via set_task_schedule
 
 ## M10 — Card detail redesign (Trello-style)
 
