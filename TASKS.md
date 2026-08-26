@@ -152,3 +152,5 @@ The deferred half of the bank: spend earned pomos on anything, with a logged not
 - [x] D1 README.md, CONTRIBUTING.md, and auto-changelog scaffold (CHANGELOG.md)
 - [x] D2 MIT license (LICENSE file + Cargo.toml metadata + README section)
 - [ ] D3 Refresh the local CLAUDE.md (still describes the empty scaffold)
+- [x] D4 GitHub community standards: code of conduct, security policy, issue forms,
+      PR template; repo description and private vulnerability reporting set by hand

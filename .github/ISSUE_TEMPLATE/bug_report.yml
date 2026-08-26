@@ -1,0 +1,49 @@
+name: Bug report
+description: Something is broken in Jotphant
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: The timer kept running after I completed the task.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we make it happen again?
+      placeholder: |
+        1. Create a task and start it
+        2. Complete the task while the timer is running
+        3. Watch the countdown in the title bar
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Jotphant version
+      description: Shown in the file properties of Jotphant.exe, or the release tag you downloaded.
+      placeholder: v0.4.0
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+  - type: input
+    id: language
+    attributes:
+      label: App language
+      description: The language selected in Settings, if it matters for this bug.
+      placeholder: English
